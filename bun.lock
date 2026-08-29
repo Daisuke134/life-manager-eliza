@@ -252,6 +252,7 @@
         "@elizaos/plugin-contacts": "workspace:*",
         "@elizaos/plugin-documents": "workspace:*",
         "@elizaos/plugin-elizacloud": "workspace:*",
+        "@elizaos/plugin-life-manager": "workspace:*",
         "@elizaos/plugin-maps": "workspace:*",
         "@elizaos/plugin-messages": "workspace:*",
         "@elizaos/plugin-native-settings": "workspace:*",
@@ -2123,6 +2124,20 @@
       },
       "devDependencies": {
         "@biomejs/biome": "2.5.8",
+        "vitest": "^4.1.10",
+      },
+    },
+    "plugins/plugin-life-manager": {
+      "name": "@elizaos/plugin-life-manager",
+      "version": "2.0.3-beta.7",
+      "dependencies": {
+        "@elizaos/core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/node": "^25.0.3",
+        "@typescript/native": "npm:typescript@^7.0.2",
+        "tsup": "^8.5.1",
+        "typescript": "^6.0.3",
         "vitest": "^4.1.10",
       },
     },
@@ -4259,6 +4274,8 @@
     "@elizaos/plugin-inmemorydb": ["@elizaos/plugin-inmemorydb@workspace:plugins/plugin-inmemorydb"],
 
     "@elizaos/plugin-instagram": ["@elizaos/plugin-instagram@workspace:plugins/plugin-instagram"],
+
+    "@elizaos/plugin-life-manager": ["@elizaos/plugin-life-manager@workspace:plugins/plugin-life-manager"],
 
     "@elizaos/plugin-linear": ["@elizaos/plugin-linear@workspace:plugins/plugin-linear"],
 
