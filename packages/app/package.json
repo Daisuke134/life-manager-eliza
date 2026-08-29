@@ -212,6 +212,7 @@
     "@elizaos/plugin-contacts": "workspace:*",
     "@elizaos/plugin-documents": "workspace:*",
     "@elizaos/plugin-elizacloud": "workspace:*",
+    "@elizaos/plugin-life-manager": "workspace:*",
     "@elizaos/plugin-maps": "workspace:*",
     "@elizaos/plugin-messages": "workspace:*",
     "@elizaos/plugin-native-settings": "workspace:*",
@@ -278,6 +279,10 @@
           "enabled": false,
           "requiredForReady": true,
           "routingOnlyWhenDisabled": true
+        },
+        "life-manager": {
+          "enabled": true,
+          "requiredForReady": true
         },
         "personal-assistant": {
           "enabled": true,
