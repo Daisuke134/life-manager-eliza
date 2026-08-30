@@ -24,6 +24,12 @@ import {
   type SpecialistDecision,
   type SpecialistDecisionRequest,
 } from "./specialist-decision.js";
+import {
+  runEffectReceiptKernel as runEffectReceiptKernelOperation,
+  type EffectReceiptKernelDependencies,
+  type EffectReceiptKernelRequest,
+  type EffectReceiptKernelResult,
+} from "./effect-receipt-kernel.js";
 import { LifeManagerMigrationService } from "./services/migration.js";
 import { ProviderBridgeService } from "./services/provider-bridge.js";
 
@@ -55,6 +61,12 @@ export class LifeManagerService extends Service {
     request: SpecialistDecisionRequest,
   ): Promise<SpecialistDecision> {
     return decideSpecialistStepOperation(this.runtime, request);
+  }
+  async runEffectReceiptKernel(
+    request: EffectReceiptKernelRequest,
+    dependencies: EffectReceiptKernelDependencies,
+  ): Promise<EffectReceiptKernelResult> {
+    return runEffectReceiptKernelOperation(request, dependencies);
   }
   async stop(): Promise<void> {}
 }
