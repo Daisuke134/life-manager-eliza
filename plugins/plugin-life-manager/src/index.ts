@@ -1,6 +1,7 @@
 import {
   type Action,
   type ActionResult,
+  type AuthorizedCapabilityRequest,
   type IAgentRuntime,
   type Plugin,
   type Provider,
@@ -14,6 +15,10 @@ import {
   type GoalWorkItemPersistenceInput,
   type GoalWorkItemResult,
 } from "./goal-work-item.js";
+import {
+  authorizeLifeManagerCapability as authorizeCapability,
+  type LifeManagerAuthorizationResolver,
+} from "./capability-authorization.js";
 import { LifeManagerMigrationService } from "./services/migration.js";
 import { ProviderBridgeService } from "./services/provider-bridge.js";
 
@@ -33,6 +38,13 @@ export class LifeManagerService extends Service {
       throw new Error("Life Manager Goal WorkItem requires plugin-sql runtime.db");
     }
     return persistGoalWorkItemRows(db, input);
+  }
+  async authorizeLifeManagerCapability(
+    value: unknown,
+    dependencies: LifeManagerAuthorizationResolver,
+    now?: number,
+  ): Promise<AuthorizedCapabilityRequest> {
+    return authorizeCapability(value, dependencies, now);
   }
   async stop(): Promise<void> {}
 }
