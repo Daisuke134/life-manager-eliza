@@ -58,6 +58,19 @@ describe("lifeManagerPlugin", () => {
       leaseExpiresAt: expect.anything(),
     });
     expect(lifeManagerPlugin.schema).toBe(lifeManagerDbSchema);
+    expect(getTableConfig(effectIntentsTable).uniqueConstraints.map(({ name }) => name)).toContain(
+      "lm_effect_intents_scope_effect_key_unique",
+    );
+    expect(getTableConfig(outcomeReceiptsTable).uniqueConstraints.map(({ name }) => name)).toContain(
+      "lm_outcome_receipts_scope_attempt_unique",
+    );
+    expect(getTableConfig(economicReceiptsTable).checks.map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        "lm_economic_receipts_amount_minor",
+        "lm_economic_receipts_amount_atomic",
+        "lm_economic_receipts_amount_representation",
+      ]),
+    );
 
     expectTypeOf<GoalRow>().toBeObject();
     expectTypeOf<GoalInsert>().toBeObject();
