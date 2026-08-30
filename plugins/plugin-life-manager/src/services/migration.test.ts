@@ -11,6 +11,7 @@ describe("LifeManagerMigration", () => {
     let marked = false;
     const exec: SqlExecutor = async (statement) => {
       statements.push(statement);
+      if (/;\s*CREATE TRIGGER/.test(statement)) throw new Error("one SQL command required");
       if (/SELECT EXISTS[\s\S]*life_manager_migration_state/.test(statement)) {
         return [{ done: marked }];
       }

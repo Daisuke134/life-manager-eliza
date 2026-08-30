@@ -50,9 +50,9 @@ export async function migrateLifeManagerDomain(exec: SqlExecutor): Promise<{
      $$`,
   );
   for (const table of RECEIPT_TABLES) {
+    await exec(`DROP TRIGGER IF EXISTS ${table}_immutable ON ${SCHEMA}.${table}`);
     await exec(
-      `DROP TRIGGER IF EXISTS ${table}_immutable ON ${SCHEMA}.${table};
-       CREATE TRIGGER ${table}_immutable
+      `CREATE TRIGGER ${table}_immutable
        BEFORE UPDATE OR DELETE ON ${SCHEMA}.${table}
        FOR EACH ROW EXECUTE FUNCTION ${SCHEMA}.reject_receipt_mutation()`,
     );
