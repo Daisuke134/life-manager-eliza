@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 import {
   check,
   foreignKey,
-  index,
   integer,
   jsonb,
   numeric,
@@ -66,6 +65,11 @@ export const planGraphsTable = lifeManagerSchema.table("plan_graphs", {
     table.entityId,
     table.id,
   ),
+  scopeGoalUnique: unique("lm_plan_graphs_scope_goal_unique").on(
+    table.agentId,
+    table.entityId,
+    table.goalId,
+  ),
   scopeGoalFk: foreignKey({
     name: "lm_plan_graphs_scope_goal_fk",
     columns: [table.agentId, table.entityId, table.goalId],
@@ -96,6 +100,11 @@ export const workItemsTable = lifeManagerSchema.table("work_items", {
     table.entityId,
     table.id,
   ),
+  scopePlanGraphUnique: unique("lm_work_items_scope_plan_graph_unique").on(
+    table.agentId,
+    table.entityId,
+    table.planGraphId,
+  ),
   scopePlanGraphFk: foreignKey({
     name: "lm_work_items_scope_plan_graph_fk",
     columns: [table.agentId, table.entityId, table.planGraphId],
@@ -104,11 +113,6 @@ export const workItemsTable = lifeManagerSchema.table("work_items", {
   inputRefsObject: check(
     "lm_work_items_input_refs_object",
     sql`jsonb_typeof(${table.inputRefs}) = 'object' AND octet_length(${table.inputRefs}::text) <= 16384`,
-  ),
-  tenantGraphIdx: index("idx_lm_work_items_tenant_graph").on(
-    table.agentId,
-    table.entityId,
-    table.planGraphId,
   ),
 }));
 

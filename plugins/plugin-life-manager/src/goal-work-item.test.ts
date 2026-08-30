@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { GoalRow } from "./db/schema.ts";
+import { getTableConfig } from "drizzle-orm/pg-core";
+import {
+  planGraphsTable,
+  type GoalRow,
+  workItemsTable,
+} from "./db/schema.ts";
 import { buildGoalWorkItemRows } from "./goal-work-item.ts";
 
 const AGENT_ID = "00000000-0000-4000-8000-000000000001";
@@ -28,6 +33,18 @@ function goal(overrides: Partial<GoalRow> = {}): GoalRow {
 }
 
 describe("Goal to WorkItem contract", () => {
+  it("keeps one relation row per scoped Goal and PlanGraph", () => {
+    expect(getTableConfig(planGraphsTable).uniqueConstraints.map(({ name }) => name)).toContain(
+      "lm_plan_graphs_scope_goal_unique",
+    );
+    expect(getTableConfig(workItemsTable).uniqueConstraints.map(({ name }) => name)).toContain(
+      "lm_work_items_scope_plan_graph_unique",
+    );
+    expect(getTableConfig(workItemsTable).indexes.map(({ name }) => name)).not.toContain(
+      "idx_lm_work_items_tenant_graph",
+    );
+  });
+
   it("maps one active Goal to one stable reference-only WorkItem without copying private text", () => {
     const first = buildGoalWorkItemRows(goal(), NOW);
     const replay = buildGoalWorkItemRows(goal(), NOW);
