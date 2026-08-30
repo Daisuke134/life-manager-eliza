@@ -105,6 +105,22 @@ export async function resolveLifeManagerAuthorization(
   return dependencies.resolve(request);
 }
 
+export const LIFE_MANAGER_HUMAN_CEREMONY_REQUIRED = "LIFE_MANAGER_HUMAN_CEREMONY_REQUIRED" as const;
+
+export class LifeManagerHumanCeremonyRequiredError extends Error {
+  readonly code = LIFE_MANAGER_HUMAN_CEREMONY_REQUIRED;
+  readonly capabilityId: string;
+  readonly authorizationRef: LifeManagerAuthorizationRef;
+  readonly humanOnlyKinds = lifeManagerCapabilityManifest.capabilities[0].humanOnlyKinds;
+
+  constructor(request: LifeManagerCapabilityRequest) {
+    super("Life Manager capability requires a human ceremony");
+    this.name = "LifeManagerHumanCeremonyRequiredError";
+    this.capabilityId = request.capabilityId;
+    this.authorizationRef = request.authorizationRef;
+  }
+}
+
 export async function authorizeLifeManagerCapability(
   value: unknown,
   dependencies: LifeManagerAuthorizationResolver,
@@ -125,5 +141,21 @@ export async function authorizeLifeManagerCapability(
     options.confirmationGrant = resolved.confirmationGrant;
   }
   if (now !== undefined) options.now = now;
-  return authorizeCapabilityDispatch(resolved.request, resolved.policy, options);
+  try {
+    return await authorizeCapabilityDispatch(
+      resolved.request,
+      resolved.policy,
+      options,
+    );
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "CAPABILITY_CONFIRMATION_REQUIRED"
+    ) {
+      throw new LifeManagerHumanCeremonyRequiredError(publicRequest);
+    }
+    throw error;
+  }
 }
