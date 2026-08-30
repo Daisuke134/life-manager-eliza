@@ -45,6 +45,19 @@ describe("ProviderBridge", () => {
     expect(success.resultSha256).toMatch(/^[0-9a-f]{64}$/);
 
     processResult = {
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: '{"provider":"luma","inventory_complete":true}\n',
+      stderr: "",
+    };
+    await expect(executeProviderBridge(request, dependencies)).resolves.toMatchObject({
+      ok: true,
+      status: "succeeded",
+      result: { provider: "luma", inventory_complete: true },
+    });
+
+    processResult = {
       exitCode: 1,
       signal: null,
       timedOut: false,
