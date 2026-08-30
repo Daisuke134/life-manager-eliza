@@ -1,9 +1,11 @@
 import type {
+  AuthorizedCapabilityRequest,
   BoundCapabilityRequest,
   CapabilityAuthorizationConsumer,
   CapabilityConfirmationGrant,
   CapabilityPolicyDecision,
 } from "@elizaos/core";
+import { authorizeCapabilityDispatch } from "@elizaos/core";
 
 export type LifeManagerAuthorizationRef =
   `life-manager-authorization://${string}`;
@@ -101,4 +103,27 @@ export async function resolveLifeManagerAuthorization(
     throw new Error("Life Manager authorization resolver is unavailable");
   }
   return dependencies.resolve(request);
+}
+
+export async function authorizeLifeManagerCapability(
+  value: unknown,
+  dependencies: LifeManagerAuthorizationResolver,
+  now?: number,
+): Promise<AuthorizedCapabilityRequest> {
+  const publicRequest = normalizeLifeManagerCapabilityRequest(value);
+  const resolved = await resolveLifeManagerAuthorization(
+    publicRequest,
+    dependencies,
+  );
+  if (resolved.request.capabilityId !== publicRequest.capabilityId) {
+    throw new Error("Life Manager authorization capability mismatch");
+  }
+  const options: Parameters<typeof authorizeCapabilityDispatch>[2] = {
+    authorizationConsumer: resolved.coordinator,
+  };
+  if (resolved.confirmationGrant) {
+    options.confirmationGrant = resolved.confirmationGrant;
+  }
+  if (now !== undefined) options.now = now;
+  return authorizeCapabilityDispatch(resolved.request, resolved.policy, options);
 }
