@@ -197,13 +197,14 @@ export async function decideSpecialistStep(
   const decisionTool: ToolDefinition = {
     name: LIFE_MANAGER_SPECIALIST_DECISION,
     description:
-      "Choose the next bounded Life Manager step from the offered candidates and tools. Return one candidate, one tool, and a reference-only graph; do not invent references or perform work.",
+      "Choose the next bounded Life Manager step from the offered candidates and tools. Return one candidate, one tool, and a reference-only graph. nextGraph is JSON text shaped exactly as {version:1,nodes:[{id,toolRef,inputRefs}],edges:[{from,to}]}; use only offered references and do not perform work.",
     parameters,
     strict: true,
   };
   const prompt = [
     "Choose exactly one next Life Manager step.",
     "Use only the offered references. Return the required decision envelope and a reference-only nextGraph.",
+    `nextGraph must be JSON text with exactly version, nodes, and edges; canonical shape example: ${JSON.stringify({ version: 1, nodes: [{ id: "step-1", toolRef: toolRefs[0], inputRefs: [candidateRefs[0]] }], edges: [] })}. Replace the example references only with exact offered refs; do not add fields.`,
     "Do not invent references, credentials, or other fields, and do not perform any operation.",
     `Work item: ${request.workItemRef}`,
     `Objective: ${request.objective}`,
