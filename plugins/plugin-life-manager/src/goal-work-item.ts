@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
 import {
   goalsTable,
   lifeManagerDbSchema,
@@ -128,6 +128,7 @@ export async function persistGoalWorkItem(
   }
 
   return db.transaction(async (tx) => {
+    await tx.execute(sql`LOCK TABLE ${goalsTable} IN SHARE MODE`);
     const [goal] = await tx
       .select()
       .from(goalsTable)
@@ -159,28 +160,61 @@ export async function persistGoalWorkItem(
     await tx
       .insert(planGraphsTable)
       .values(expected.planGraph)
-      .onConflictDoNothing({ target: planGraphsTable.id });
-    await tx
-      .insert(workItemsTable)
-      .values(expected.workItem)
-      .onConflictDoNothing({ target: workItemsTable.id });
+      .onConflictDoNothing({
+        target: [
+          planGraphsTable.agentId,
+          planGraphsTable.entityId,
+          planGraphsTable.goalId,
+        ],
+      });
 
     const [storedPlanGraph] = await tx
       .select()
       .from(planGraphsTable)
-      .where(goalScope(planGraphsTable, input))
-      .limit(1);
-    const [storedWorkItem] = await tx
-      .select()
-      .from(workItemsTable)
-      .where(goalScope(workItemsTable, input))
+      .where(
+        and(
+          eq(planGraphsTable.agentId, input.agentId),
+          eq(planGraphsTable.entityId, input.entityId),
+          eq(planGraphsTable.goalId, input.goalId),
+        ),
+      )
       .limit(1);
     if (
       !sameContract(
         storedPlanGraph,
         expected.planGraph as Record<string, unknown>,
         PLAN_GRAPH_FIELDS,
-      ) ||
+      )
+    ) {
+      throw new GoalWorkItemError(
+        GOAL_WORK_ITEM_CONFLICT,
+        "WorkItem persistence conflicts with existing PlanGraph",
+      );
+    }
+
+    await tx
+      .insert(workItemsTable)
+      .values(expected.workItem)
+      .onConflictDoNothing({
+        target: [
+          workItemsTable.agentId,
+          workItemsTable.entityId,
+          workItemsTable.planGraphId,
+        ],
+      });
+
+    const [storedWorkItem] = await tx
+      .select()
+      .from(workItemsTable)
+      .where(
+        and(
+          eq(workItemsTable.agentId, input.agentId),
+          eq(workItemsTable.entityId, input.entityId),
+          eq(workItemsTable.planGraphId, input.goalId),
+        ),
+      )
+      .limit(1);
+    if (
       !sameContract(
         storedWorkItem,
         expected.workItem as Record<string, unknown>,
