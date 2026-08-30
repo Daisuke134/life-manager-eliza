@@ -1,5 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
+  check,
+  index,
   integer,
   jsonb,
   numeric,
@@ -7,6 +9,7 @@ import {
   smallint,
   text,
   timestamp,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -68,7 +71,17 @@ export const workItemsTable = lifeManagerSchema.table("work_items", {
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .default(sql`now()`)
     .notNull(),
-});
+}, (table) => ({
+  inputRefsObject: check(
+    "lm_work_items_input_refs_object",
+    sql`jsonb_typeof(${table.inputRefs}) = 'object' AND octet_length(${table.inputRefs}::text) <= 16384`,
+  ),
+  tenantGraphIdx: index("idx_lm_work_items_tenant_graph").on(
+    table.agentId,
+    table.entityId,
+    table.planGraphId,
+  ),
+}));
 
 export type WorkItemRow = typeof workItemsTable.$inferSelect;
 export type WorkItemInsert = typeof workItemsTable.$inferInsert;
@@ -93,7 +106,22 @@ export const effectIntentsTable = lifeManagerSchema.table("effect_intents", {
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .default(sql`now()`)
     .notNull(),
-});
+}, (table) => ({
+  scopeEffectUnique: unique("lm_effect_intents_scope_effect_key_unique").on(
+    table.agentId,
+    table.entityId,
+    table.effectKey,
+  ),
+  inputRefsObject: check(
+    "lm_effect_intents_input_refs_object",
+    sql`jsonb_typeof(${table.inputRefs}) = 'object' AND octet_length(${table.inputRefs}::text) <= 16384`,
+  ),
+  attemptNonNegative: check("lm_effect_intents_attempt_nonnegative", sql`${table.attempt} >= 0`),
+  leaseCoherent: check(
+    "lm_effect_intents_lease_coherent",
+    sql`(${table.status} = 'running' AND ${table.leaseOwner} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL) OR (${table.status} <> 'running' AND ${table.leaseOwner} IS NULL AND ${table.leaseExpiresAt} IS NULL)`,
+  ),
+}));
 
 export type EffectIntentRow = typeof effectIntentsTable.$inferSelect;
 export type EffectIntentInsert = typeof effectIntentsTable.$inferInsert;
@@ -112,7 +140,18 @@ export const outcomeReceiptsTable = lifeManagerSchema.table("outcome_receipts", 
   createdAt: timestamp("created_at", { withTimezone: true })
     .default(sql`now()`)
     .notNull(),
-});
+}, (table) => ({
+  scopeAttemptUnique: unique("lm_outcome_receipts_scope_attempt_unique").on(
+    table.agentId,
+    table.entityId,
+    table.effectIntentId,
+    table.attempt,
+  ),
+  receiptObject: check(
+    "lm_outcome_receipts_receipt_object",
+    sql`jsonb_typeof(${table.receipt}) = 'object' AND octet_length(${table.receipt}::text) <= 16384`,
+  ),
+}));
 
 export type OutcomeReceiptRow = typeof outcomeReceiptsTable.$inferSelect;
 export type OutcomeReceiptInsert = typeof outcomeReceiptsTable.$inferInsert;
@@ -126,6 +165,7 @@ export const economicReceiptsTable = lifeManagerSchema.table(
     outcomeReceiptId: uuid("outcome_receipt_id")
       .notNull()
       .references(() => outcomeReceiptsTable.id),
+    entryKey: text("entry_key").notNull(),
     kind: text("kind").notNull(),
     amountMinor: numeric("amount_minor"),
     amountAtomic: numeric("amount_atomic"),
@@ -137,6 +177,33 @@ export const economicReceiptsTable = lifeManagerSchema.table(
       .default(sql`now()`)
       .notNull(),
   },
+  (table) => ({
+    scopeEntryUnique: unique("lm_economic_receipts_scope_entry_key_unique").on(
+      table.agentId,
+      table.entityId,
+      table.entryKey,
+    ),
+    entryKeyLength: check(
+      "lm_economic_receipts_entry_key_length",
+      sql`char_length(${table.entryKey}) BETWEEN 1 AND 256`,
+    ),
+    minorAmount: check(
+      "lm_economic_receipts_amount_minor",
+      sql`${table.amountMinor} IS NULL OR (${table.amountMinor} = trunc(${table.amountMinor}) AND ${table.amountMinor} >= 0 AND ${table.amountMinor} <= 9007199254740991)`,
+    ),
+    atomicAmount: check(
+      "lm_economic_receipts_amount_atomic",
+      sql`${table.amountAtomic} IS NULL OR (${table.amountAtomic} = trunc(${table.amountAtomic}) AND ${table.amountAtomic} >= 0 AND ${table.amountAtomic} <= 90071992547409910000)`,
+    ),
+    amountRepresentation: check(
+      "lm_economic_receipts_amount_representation",
+      sql`(${table.amountMinor} IS NOT NULL AND ${table.amountAtomic} IS NULL AND ${table.amountDecimals} IS NULL) OR (${table.amountMinor} IS NULL AND ${table.amountAtomic} IS NOT NULL AND ${table.amountDecimals} BETWEEN 0 AND 6)`,
+    ),
+    currencyFormat: check(
+      "lm_economic_receipts_currency_format",
+      sql`${table.currency} ~ '^[A-Z]{3}$'`,
+    ),
+  }),
 );
 
 export type EconomicReceiptRow = typeof economicReceiptsTable.$inferSelect;
