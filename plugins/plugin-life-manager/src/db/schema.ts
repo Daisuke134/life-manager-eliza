@@ -95,3 +95,22 @@ export const effectIntentsTable = lifeManagerSchema.table("effect_intents", {
 
 export type EffectIntentRow = typeof effectIntentsTable.$inferSelect;
 export type EffectIntentInsert = typeof effectIntentsTable.$inferInsert;
+
+export const outcomeReceiptsTable = lifeManagerSchema.table("outcome_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  agentId: uuid("agent_id").notNull(),
+  entityId: uuid("entity_id").notNull(),
+  effectIntentId: uuid("effect_intent_id")
+    .notNull()
+    .references(() => effectIntentsTable.id),
+  attempt: integer("attempt").notNull(),
+  outcome: text("outcome").notNull(),
+  effectKey: text("effect_key").notNull(),
+  receipt: jsonb("receipt").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .default(sql`now()`)
+    .notNull(),
+});
+
+export type OutcomeReceiptRow = typeof outcomeReceiptsTable.$inferSelect;
+export type OutcomeReceiptInsert = typeof outcomeReceiptsTable.$inferInsert;
