@@ -71,6 +71,26 @@ describe("lifeManagerPlugin", () => {
         "lm_economic_receipts_amount_representation",
       ]),
     );
+    for (const [, table] of tables) {
+      const config = getTableConfig(table);
+      expect(
+        config.uniqueConstraints.some(({ columns }) =>
+          ["agent_id", "entity_id", "id"].every((name) =>
+            columns.some((column) => column.name === name),
+          ),
+        ),
+      ).toBe(true);
+      expect(config.foreignKeys.length).toBeGreaterThan(0);
+      for (const foreignKey of config.foreignKeys) {
+        const reference = foreignKey.reference();
+        expect(reference.columns.map((column) => column.name)).toEqual(
+          expect.arrayContaining(["agent_id", "entity_id"]),
+        );
+        expect(reference.foreignColumns.map((column) => column.name)).toEqual(
+          expect.arrayContaining(["agent_id", "entity_id"]),
+        );
+      }
+    }
 
     expectTypeOf<GoalRow>().toBeObject();
     expectTypeOf<GoalInsert>().toBeObject();
