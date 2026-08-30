@@ -2,7 +2,9 @@ import { sql } from "drizzle-orm";
 import {
   integer,
   jsonb,
+  numeric,
   pgSchema,
+  smallint,
   text,
   timestamp,
   uuid,
@@ -114,3 +116,28 @@ export const outcomeReceiptsTable = lifeManagerSchema.table("outcome_receipts", 
 
 export type OutcomeReceiptRow = typeof outcomeReceiptsTable.$inferSelect;
 export type OutcomeReceiptInsert = typeof outcomeReceiptsTable.$inferInsert;
+
+export const economicReceiptsTable = lifeManagerSchema.table(
+  "economic_receipts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agentId: uuid("agent_id").notNull(),
+    entityId: uuid("entity_id").notNull(),
+    outcomeReceiptId: uuid("outcome_receipt_id")
+      .notNull()
+      .references(() => outcomeReceiptsTable.id),
+    kind: text("kind").notNull(),
+    amountMinor: numeric("amount_minor"),
+    amountAtomic: numeric("amount_atomic"),
+    amountDecimals: smallint("amount_decimals"),
+    currency: text("currency").notNull(),
+    verificationStatus: text("verification_status").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .default(sql`now()`)
+      .notNull(),
+  },
+);
+
+export type EconomicReceiptRow = typeof economicReceiptsTable.$inferSelect;
+export type EconomicReceiptInsert = typeof economicReceiptsTable.$inferInsert;
