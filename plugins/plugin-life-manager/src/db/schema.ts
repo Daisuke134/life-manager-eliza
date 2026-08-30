@@ -208,3 +208,12 @@ export const economicReceiptsTable = lifeManagerSchema.table(
 
 export type EconomicReceiptRow = typeof economicReceiptsTable.$inferSelect;
 export type EconomicReceiptInsert = typeof economicReceiptsTable.$inferInsert;
+
+export const lifeManagerDbSchema = {
+  goalsTable,
+  planGraphsTable,
+  workItemsTable,
+  effectIntentsTable,
+  outcomeReceiptsTable,
+  economicReceiptsTable,
+} as const;
