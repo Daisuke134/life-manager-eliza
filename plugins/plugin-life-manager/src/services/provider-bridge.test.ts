@@ -1,6 +1,8 @@
+import { AgentRuntime } from "@elizaos/core";
 import { describe, expect, it } from "vitest";
 import {
   executeProviderBridge,
+  ProviderBridgeService,
   type ProviderProcessResult,
   type ProviderToolDescriptor,
 } from "./provider-bridge.ts";
@@ -57,6 +59,29 @@ describe("ProviderBridge", () => {
       result: { provider: "luma", inventory_complete: true },
     });
 
+    processResult = { exitCode: 0, signal: null, timedOut: false, stderr: "",
+      stdout: '{"ok":true,"env":{"PRIVATE_TOKEN":"secret-value"},"stdout":"secret-value"}\n' };
+    const privatePayload = await executeProviderBridge(request, dependencies);
+    expect(privatePayload).toEqual({
+      ok: false,
+      status: "failed",
+      toolRef: request.toolRef,
+      inputRef: request.inputRef,
+      exitCode: 0,
+      errorCode: "PROVIDER_TOOL_OUTPUT_INVALID",
+    });
+    await expect(executeProviderBridge(request, {
+      ...dependencies,
+      resolve: async () => { throw new Error("resolver secret-value"); },
+    })).resolves.toEqual({
+      ok: false,
+      status: "failed",
+      toolRef: request.toolRef,
+      inputRef: request.inputRef,
+      exitCode: null,
+      errorCode: "PROVIDER_TOOL_FAILED",
+    });
+
     processResult = {
       exitCode: 1,
       signal: null,
@@ -93,5 +118,31 @@ describe("ProviderBridge", () => {
     expect(JSON.stringify([success, failure, invalid])).not.toMatch(
       /private|secret-value|executable|stdout|stderr|args|cwd|env/,
     );
+  });
+
+  it("starts as a registered service and executes after host resolver injection", async () => {
+    const runtime = new AgentRuntime({ logLevel: "fatal" });
+    const service = await ProviderBridgeService.start(runtime);
+    service.registerResolver(async () => ({
+      executable: process.execPath,
+      args: ["-e", 'console.log(JSON.stringify({ok:true,lifecycle:true}))'],
+      cwd: process.cwd(),
+      env: { PATH: process.env.PATH || "/usr/bin" },
+      timeoutMs: 5_000,
+      maxBufferBytes: 16_384,
+    }));
+    await expect(service.execute({
+      toolRef: "tool-ref-lifecycle",
+      inputRef: "input-ref-lifecycle",
+    })).resolves.toMatchObject({
+      ok: true,
+      status: "succeeded",
+      result: { ok: true, lifecycle: true },
+    });
+    await service.stop();
+    await expect(service.execute({
+      toolRef: "tool-ref-lifecycle",
+      inputRef: "input-ref-lifecycle",
+    })).rejects.toThrow("resolver unavailable");
   });
 });

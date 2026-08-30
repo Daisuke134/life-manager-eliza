@@ -181,6 +181,45 @@ function failedResult(
   });
 }
 
+const PRIVATE_RESULT_KEYS = new Set([
+  "executable", "args", "argv", "cwd", "env", "environment", "stdout",
+  "stderr", "command", "shell", "token", "accesstoken", "refreshtoken",
+  "secret", "password", "authorization", "cookie", "credential", "credentials", "apikey",
+]);
+
+function containsPrivateResultKey(value: Record<string, unknown>): boolean {
+  const pending: unknown[] = [value];
+  let visited = 0;
+  while (pending.length > 0) {
+    if ((visited += 1) > 10_000) return true;
+    const item = pending.pop();
+    if (!item || typeof item !== "object") continue;
+    if (Array.isArray(item)) {
+      pending.push(...item);
+      continue;
+    }
+    for (const [key, nested] of Object.entries(item)) {
+      if (PRIVATE_RESULT_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, ""))) {
+        return true;
+      }
+      pending.push(nested);
+    }
+  }
+  return false;
+}
+
+function containsDescriptorValue(
+  source: string,
+  descriptor: ProviderToolDescriptor,
+): boolean {
+  return [
+    descriptor.executable,
+    descriptor.cwd,
+    ...descriptor.args,
+    ...Object.values(descriptor.env),
+  ].some((value) => value.length >= 4 && source.includes(value));
+}
+
 function publicResult(
   request: ProviderBridgeRequest,
   descriptor: ProviderToolDescriptor,
@@ -212,7 +251,9 @@ function publicResult(
     !parsed ||
     typeof parsed !== "object" ||
     Array.isArray(parsed) ||
-    ("ok" in parsed && (parsed as Record<string, unknown>).ok !== true)
+    ("ok" in parsed && (parsed as Record<string, unknown>).ok !== true) ||
+    containsPrivateResultKey(parsed as Record<string, unknown>) ||
+    containsDescriptorValue(source, descriptor)
   ) {
     return failedResult(request, 0, "PROVIDER_TOOL_OUTPUT_INVALID");
   }
@@ -232,7 +273,12 @@ export async function executeProviderBridge(
   dependencies: ProviderBridgeDependencies,
 ): Promise<ProviderBridgeResult> {
   const safeRequest = opaqueRequest(request);
-  const descriptor = await resolveProviderDescriptor(safeRequest, dependencies);
+  let descriptor: ProviderToolDescriptor;
+  try {
+    descriptor = await resolveProviderDescriptor(safeRequest, dependencies);
+  } catch {
+    return failedResult(safeRequest, null, "PROVIDER_TOOL_FAILED");
+  }
   let processResult: ProviderProcessResult;
   try {
     processResult = await dependencies.run(descriptor);
