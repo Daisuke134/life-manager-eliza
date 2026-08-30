@@ -1,5 +1,12 @@
 import { sql } from "drizzle-orm";
-import { jsonb, pgSchema, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  integer,
+  jsonb,
+  pgSchema,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 export const lifeManagerSchema = pgSchema("life_manager");
 
@@ -63,3 +70,28 @@ export const workItemsTable = lifeManagerSchema.table("work_items", {
 
 export type WorkItemRow = typeof workItemsTable.$inferSelect;
 export type WorkItemInsert = typeof workItemsTable.$inferInsert;
+
+export const effectIntentsTable = lifeManagerSchema.table("effect_intents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  agentId: uuid("agent_id").notNull(),
+  entityId: uuid("entity_id").notNull(),
+  workItemId: uuid("work_item_id")
+    .notNull()
+    .references(() => workItemsTable.id),
+  effectClass: text("effect_class").notNull(),
+  effectKey: text("effect_key").notNull(),
+  inputRefs: jsonb("input_refs").notNull(),
+  attempt: integer("attempt").notNull().default(0),
+  status: text("status").notNull().default("planned"),
+  leaseOwner: text("lease_owner"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .default(sql`now()`)
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .default(sql`now()`)
+    .notNull(),
+});
+
+export type EffectIntentRow = typeof effectIntentsTable.$inferSelect;
+export type EffectIntentInsert = typeof effectIntentsTable.$inferInsert;
