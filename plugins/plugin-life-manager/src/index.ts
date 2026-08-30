@@ -8,6 +8,7 @@ import {
   Service,
 } from "@elizaos/core";
 import { lifeManagerDbSchema } from "./db/schema.js";
+import { LifeManagerMigrationService } from "./services/migration.js";
 
 export const LIFE_MANAGER_SERVICE_TYPE = "LIFE_MANAGER" as const;
 
@@ -53,7 +54,7 @@ export const lifeManagerPlugin: Plugin = {
   name: "@elizaos/plugin-life-manager",
   description: "Life Manager general-agent capabilities hosted by the existing Eliza runtime.",
   dependencies: ["@elizaos/plugin-sql"],
-  services: [LifeManagerService],
+  services: [LifeManagerMigrationService, LifeManagerService],
   actions: [lifeManagerHealthAction],
   providers: [lifeManagerHealthProvider],
   schema: lifeManagerDbSchema,
