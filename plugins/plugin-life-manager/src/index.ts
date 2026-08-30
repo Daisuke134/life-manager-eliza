@@ -19,6 +19,11 @@ import {
   authorizeLifeManagerCapability as authorizeCapability,
   type LifeManagerAuthorizationResolver,
 } from "./capability-authorization.js";
+import {
+  decideSpecialistStep as decideSpecialistStepOperation,
+  type SpecialistDecision,
+  type SpecialistDecisionRequest,
+} from "./specialist-decision.js";
 import { LifeManagerMigrationService } from "./services/migration.js";
 import { ProviderBridgeService } from "./services/provider-bridge.js";
 
@@ -45,6 +50,11 @@ export class LifeManagerService extends Service {
     now?: number,
   ): Promise<AuthorizedCapabilityRequest> {
     return authorizeCapability(value, dependencies, now);
+  }
+  async decideSpecialistStep(
+    request: SpecialistDecisionRequest,
+  ): Promise<SpecialistDecision> {
+    return decideSpecialistStepOperation(this.runtime, request);
   }
   async stop(): Promise<void> {}
 }
