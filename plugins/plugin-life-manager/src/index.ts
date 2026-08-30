@@ -8,6 +8,12 @@ import {
   Service,
 } from "@elizaos/core";
 import { lifeManagerDbSchema } from "./db/schema.js";
+import {
+  persistGoalWorkItem as persistGoalWorkItemRows,
+  type GoalWorkItemDatabase,
+  type GoalWorkItemPersistenceInput,
+  type GoalWorkItemResult,
+} from "./goal-work-item.js";
 import { LifeManagerMigrationService } from "./services/migration.js";
 import { ProviderBridgeService } from "./services/provider-bridge.js";
 
@@ -18,6 +24,15 @@ export class LifeManagerService extends Service {
   capabilityDescription = "Hosts Life Manager capabilities inside the existing Eliza runtime.";
   static async start(runtime: IAgentRuntime): Promise<LifeManagerService> {
     return new LifeManagerService(runtime);
+  }
+  async persistGoalWorkItem(
+    input: GoalWorkItemPersistenceInput,
+  ): Promise<GoalWorkItemResult> {
+    const db = this.runtime.db as unknown as GoalWorkItemDatabase | undefined;
+    if (!db || typeof db.transaction !== "function") {
+      throw new Error("Life Manager Goal WorkItem requires plugin-sql runtime.db");
+    }
+    return persistGoalWorkItemRows(db, input);
   }
   async stop(): Promise<void> {}
 }
