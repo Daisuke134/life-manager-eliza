@@ -11,6 +11,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   authorizeLifeManagerCapability,
+  LifeManagerHumanCeremonyRequiredError,
   lifeManagerCapabilityManifest,
   type LifeManagerAuthorizationRef,
 } from "./capability-authorization.ts";
@@ -227,5 +228,37 @@ describe("Life Manager capability authorization contract", () => {
     expect(JSON.stringify({ capabilityId: CAPABILITY_ID, authorizationRef: AUTHORIZATION_REF })).not.toMatch(
       /provider|account|credential|secret|skill/i,
     );
+  });
+
+  it("does not reinterpret an allowed-policy consumer failure as human ceremony", async () => {
+    const request = boundRequest();
+    const policy = allowedPolicy(request);
+    const coreFailure = Object.assign(
+      new Error("core confirmation boundary"),
+      { code: "CAPABILITY_CONFIRMATION_REQUIRED" },
+    );
+    const resolve = async () => ({
+      request,
+      policy,
+      coordinator: {
+        async consume() {
+          throw coreFailure;
+        },
+      },
+    });
+
+    let error: unknown;
+    try {
+      await authorizeLifeManagerCapability(
+        { capabilityId: CAPABILITY_ID, authorizationRef: AUTHORIZATION_REF },
+        { resolve },
+        AUTHORIZED_NOW,
+      );
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBe(coreFailure);
+    expect(error).toMatchObject({ code: "CAPABILITY_CONFIRMATION_REQUIRED" });
+    expect(error).not.toBeInstanceOf(LifeManagerHumanCeremonyRequiredError);
   });
 });

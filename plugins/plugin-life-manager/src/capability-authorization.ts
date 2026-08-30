@@ -149,6 +149,8 @@ export async function authorizeLifeManagerCapability(
     );
   } catch (error) {
     if (
+      resolved.policy.outcome === "confirmation_required" &&
+      resolved.confirmationGrant === undefined &&
       error &&
       typeof error === "object" &&
       "code" in error &&
