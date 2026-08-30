@@ -30,6 +30,12 @@ import {
   type EffectReceiptKernelRequest,
   type EffectReceiptKernelResult,
 } from "./effect-receipt-kernel.js";
+import {
+  readGoalReflection,
+  type GoalReflection,
+  type GoalReflectionDatabase,
+  type GoalReflectionReadInput,
+} from "./goal-reflection.js";
 import { LifeManagerMigrationService } from "./services/migration.js";
 import { ProviderBridgeService } from "./services/provider-bridge.js";
 
@@ -67,6 +73,17 @@ export class LifeManagerService extends Service {
     dependencies: EffectReceiptKernelDependencies,
   ): Promise<EffectReceiptKernelResult> {
     return runEffectReceiptKernelOperation(request, dependencies);
+  }
+  async reflectGoal(input: GoalReflectionReadInput): Promise<GoalReflection> {
+    const db = this.runtime.db as unknown as GoalReflectionDatabase | undefined;
+    if (
+      !db ||
+      typeof db.select !== "function" ||
+      typeof db.transaction !== "function"
+    ) {
+      throw new Error("Life Manager Goal reflection requires plugin-sql runtime.db");
+    }
+    return readGoalReflection(db, input);
   }
   async stop(): Promise<void> {}
 }
