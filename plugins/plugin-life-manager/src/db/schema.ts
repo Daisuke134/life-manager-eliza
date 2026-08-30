@@ -22,3 +22,23 @@ export const goalsTable = lifeManagerSchema.table("goals", {
 
 export type GoalRow = typeof goalsTable.$inferSelect;
 export type GoalInsert = typeof goalsTable.$inferInsert;
+
+export const planGraphsTable = lifeManagerSchema.table("plan_graphs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  agentId: uuid("agent_id").notNull(),
+  entityId: uuid("entity_id").notNull(),
+  goalId: uuid("goal_id")
+    .notNull()
+    .references(() => goalsTable.id),
+  graph: jsonb("graph").notNull(),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .default(sql`now()`)
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .default(sql`now()`)
+    .notNull(),
+});
+
+export type PlanGraphRow = typeof planGraphsTable.$inferSelect;
+export type PlanGraphInsert = typeof planGraphsTable.$inferInsert;
