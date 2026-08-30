@@ -23,6 +23,7 @@ const INPUT_DIGEST = "a".repeat(64);
 const BOUND_AT = "2026-08-30T12:00:00.000Z";
 const ISSUED_AT = "2026-08-30T12:00:10.000Z";
 const AUTHORIZED_NOW = Date.parse("2026-08-30T12:00:30.000Z");
+const RECEIPT_NOW = Date.parse("2026-08-30T12:01:00.000Z");
 const EXPIRES_AT = "2026-08-30T12:05:00.000Z";
 
 function boundRequest(): BoundCapabilityRequest {
@@ -172,7 +173,7 @@ describe("Life Manager capability authorization contract", () => {
       JSON.stringify(
         normalizeCapabilityActionReceipt(coreReceipt, {
           authorization: authority,
-          now: AUTHORIZED_NOW,
+          now: RECEIPT_NOW,
         }),
       ),
     ).toContain(CAPABILITY_ID);
