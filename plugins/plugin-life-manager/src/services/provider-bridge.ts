@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
+import { type IAgentRuntime, Service } from "@elizaos/core";
 
 export type ProviderToolRef = string;
 export type ProviderInputRef = string;
@@ -239,4 +240,38 @@ export async function executeProviderBridge(
     return failedResult(safeRequest, null, "PROVIDER_TOOL_FAILED");
   }
   return publicResult(safeRequest, descriptor, processResult);
+}
+
+export const PROVIDER_BRIDGE_SERVICE_TYPE = "PROVIDER_BRIDGE" as const;
+
+export class ProviderBridgeService extends Service {
+  static override readonly serviceType = PROVIDER_BRIDGE_SERVICE_TYPE;
+  override capabilityDescription =
+    "Executes host-resolved legacy provider tools from opaque refs and returns bounded structured results.";
+  private resolver: ProviderBridgeDependencies["resolve"] | null = null;
+
+  static async start(runtime: IAgentRuntime): Promise<ProviderBridgeService> {
+    return new ProviderBridgeService(runtime);
+  }
+
+  registerResolver(resolver: ProviderBridgeDependencies["resolve"]): void {
+    if (this.resolver !== null || typeof resolver !== "function") {
+      throw new Error("Provider bridge resolver unavailable");
+    }
+    this.resolver = resolver;
+  }
+
+  async execute(request: ProviderBridgeRequest): Promise<ProviderBridgeResult> {
+    if (this.resolver === null) {
+      throw new Error("Provider bridge resolver unavailable");
+    }
+    return executeProviderBridge(request, {
+      resolve: this.resolver,
+      run: defaultProviderRunner,
+    });
+  }
+
+  override async stop(): Promise<void> {
+    this.resolver = null;
+  }
 }
