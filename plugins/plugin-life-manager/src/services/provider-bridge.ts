@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { isAbsolute } from "node:path";
 
 export type ProviderToolRef = string;
@@ -119,4 +120,43 @@ async function resolveProviderDescriptor(
   dependencies: ProviderBridgeDependencies,
 ): Promise<ProviderToolDescriptor> {
   return privateDescriptor(await dependencies.resolve(opaqueRequest(request)));
+}
+
+function defaultProviderRunner(
+  descriptor: ProviderToolDescriptor,
+): Promise<ProviderProcessResult> {
+  return new Promise((resolve) => {
+    execFile(
+      descriptor.executable,
+      [...descriptor.args],
+      {
+        cwd: descriptor.cwd,
+        env: { ...descriptor.env },
+        timeout: descriptor.timeoutMs,
+        maxBuffer: descriptor.maxBufferBytes,
+        encoding: "utf8",
+        shell: false,
+      },
+      (error, stdout, stderr) => {
+        const failure = error as (Error & {
+          code?: number | string;
+          signal?: NodeJS.Signals;
+          killed?: boolean;
+        }) | null;
+        resolve({
+          exitCode:
+            typeof failure?.code === "number"
+              ? failure.code
+              : failure
+                ? null
+                : 0,
+          signal: failure?.signal ?? null,
+          timedOut:
+            failure?.code === "ETIMEDOUT" || failure?.killed === true,
+          stdout: String(stdout ?? ""),
+          stderr: String(stderr ?? ""),
+        });
+      },
+    );
+  });
 }
