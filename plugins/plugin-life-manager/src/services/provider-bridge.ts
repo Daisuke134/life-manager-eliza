@@ -212,7 +212,7 @@ function publicResult(
     !parsed ||
     typeof parsed !== "object" ||
     Array.isArray(parsed) ||
-    (parsed as Record<string, unknown>).ok !== true
+    ("ok" in parsed && (parsed as Record<string, unknown>).ok !== true)
   ) {
     return failedResult(request, 0, "PROVIDER_TOOL_OUTPUT_INVALID");
   }
