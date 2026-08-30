@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 
 export type ProviderToolRef = string;
@@ -159,4 +160,83 @@ function defaultProviderRunner(
       },
     );
   });
+}
+
+function failedResult(
+  request: ProviderBridgeRequest,
+  exitCode: number | null,
+  errorCode:
+    | "PROVIDER_TOOL_FAILED"
+    | "PROVIDER_TOOL_OUTPUT_INVALID"
+    | "PROVIDER_TOOL_TIMEOUT",
+): ProviderBridgeResult {
+  return Object.freeze({
+    ok: false,
+    status: "failed",
+    toolRef: request.toolRef,
+    inputRef: request.inputRef,
+    exitCode,
+    errorCode,
+  });
+}
+
+function publicResult(
+  request: ProviderBridgeRequest,
+  descriptor: ProviderToolDescriptor,
+  processResult: ProviderProcessResult,
+): ProviderBridgeResult {
+  if (processResult.timedOut) {
+    return failedResult(request, processResult.exitCode, "PROVIDER_TOOL_TIMEOUT");
+  }
+  if (
+    processResult.exitCode !== 0 ||
+    processResult.signal !== null ||
+    Buffer.byteLength(processResult.stdout) > descriptor.maxBufferBytes
+  ) {
+    return failedResult(request, processResult.exitCode, "PROVIDER_TOOL_FAILED");
+  }
+  const source = processResult.stdout.endsWith("\n")
+    ? processResult.stdout.slice(0, -1)
+    : processResult.stdout;
+  if (!source || source.includes("\n") || source.includes("\r")) {
+    return failedResult(request, 0, "PROVIDER_TOOL_OUTPUT_INVALID");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    return failedResult(request, 0, "PROVIDER_TOOL_OUTPUT_INVALID");
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    (parsed as Record<string, unknown>).ok !== true
+  ) {
+    return failedResult(request, 0, "PROVIDER_TOOL_OUTPUT_INVALID");
+  }
+  return Object.freeze({
+    ok: true,
+    status: "succeeded",
+    toolRef: request.toolRef,
+    inputRef: request.inputRef,
+    exitCode: 0,
+    result: parsed as Record<string, unknown>,
+    resultSha256: createHash("sha256").update(source).digest("hex"),
+  });
+}
+
+export async function executeProviderBridge(
+  request: ProviderBridgeRequest,
+  dependencies: ProviderBridgeDependencies,
+): Promise<ProviderBridgeResult> {
+  const safeRequest = opaqueRequest(request);
+  const descriptor = await resolveProviderDescriptor(safeRequest, dependencies);
+  let processResult: ProviderProcessResult;
+  try {
+    processResult = await dependencies.run(descriptor);
+  } catch {
+    return failedResult(safeRequest, null, "PROVIDER_TOOL_FAILED");
+  }
+  return publicResult(safeRequest, descriptor, processResult);
 }
