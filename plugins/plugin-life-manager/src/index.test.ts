@@ -1,6 +1,28 @@
 import { readFileSync } from "node:fs";
 import { AgentRuntime } from "@elizaos/core";
-import { describe, expect, it } from "vitest";
+import { getTableConfig } from "drizzle-orm/pg-core";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import {
+  economicReceiptsTable,
+  effectIntentsTable,
+  goalsTable,
+  lifeManagerDbSchema,
+  outcomeReceiptsTable,
+  planGraphsTable,
+  type EconomicReceiptInsert,
+  type EconomicReceiptRow,
+  type EffectIntentInsert,
+  type EffectIntentRow,
+  type GoalInsert,
+  type GoalRow,
+  type OutcomeReceiptInsert,
+  type OutcomeReceiptRow,
+  type PlanGraphInsert,
+  type PlanGraphRow,
+  type WorkItemInsert,
+  type WorkItemRow,
+  workItemsTable,
+} from "./db/schema";
 import {
   LIFE_MANAGER_SERVICE_TYPE,
   lifeManagerHealthAction,
@@ -9,6 +31,48 @@ import {
 } from "./index";
 
 describe("lifeManagerPlugin", () => {
+  it("registers the six tenant-scoped Life Manager domain tables", () => {
+    const tables = [
+      ["goals", goalsTable],
+      ["plan_graphs", planGraphsTable],
+      ["work_items", workItemsTable],
+      ["effect_intents", effectIntentsTable],
+      ["outcome_receipts", outcomeReceiptsTable],
+      ["economic_receipts", economicReceiptsTable],
+    ] as const;
+
+    expect(Object.values(lifeManagerDbSchema)).toEqual(tables.map(([, table]) => table));
+    for (const [name, table] of tables) {
+      const config = getTableConfig(table);
+      expect(config.schema).toBe("life_manager");
+      expect(config.name).toBe(name);
+      expect(config.columns.map((column) => column.name)).toEqual(
+        expect.arrayContaining(["agent_id", "entity_id"]),
+      );
+    }
+    expect(workItemsTable).toHaveProperty("inputRefs");
+    expect(effectIntentsTable).toMatchObject({
+      inputRefs: expect.anything(),
+      effectKey: expect.anything(),
+      leaseOwner: expect.anything(),
+      leaseExpiresAt: expect.anything(),
+    });
+    expect(lifeManagerPlugin.schema).toBe(lifeManagerDbSchema);
+
+    expectTypeOf<GoalRow>().toBeObject();
+    expectTypeOf<GoalInsert>().toBeObject();
+    expectTypeOf<PlanGraphRow>().toBeObject();
+    expectTypeOf<PlanGraphInsert>().toBeObject();
+    expectTypeOf<WorkItemRow>().toBeObject();
+    expectTypeOf<WorkItemInsert>().toBeObject();
+    expectTypeOf<EffectIntentRow>().toBeObject();
+    expectTypeOf<EffectIntentInsert>().toBeObject();
+    expectTypeOf<OutcomeReceiptRow>().toBeObject();
+    expectTypeOf<OutcomeReceiptInsert>().toBeObject();
+    expectTypeOf<EconomicReceiptRow>().toBeObject();
+    expectTypeOf<EconomicReceiptInsert>().toBeObject();
+  });
+
   it("registers exactly one plugin/action/provider/service through the host manifest", async () => {
     const runtime = new AgentRuntime({ logLevel: "fatal" });
     await runtime.registerPlugin(lifeManagerPlugin);
