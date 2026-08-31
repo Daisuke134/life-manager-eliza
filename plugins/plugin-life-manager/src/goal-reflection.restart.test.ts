@@ -17,7 +17,15 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const WORKER = path.join(import.meta.dirname, "goal-reflection.restart.worker.ts");
-const RECEIPT_DIR = path.join(homedir(), ".local", "state", "life-manager", "eliza-atoms");
+const RECEIPT_DIR = path.join(
+  homedir(),
+  ".local",
+  "state",
+  "life-manager",
+  "migration",
+  "elz-c",
+  "c09",
+);
 const RECEIPT_PATH = path.join(RECEIPT_DIR, "reflect-restart-receipt.json");
 
 interface WorkerResult {
