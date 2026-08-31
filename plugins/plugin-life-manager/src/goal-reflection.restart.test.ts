@@ -100,5 +100,7 @@ describe("Goal reflection restart across separate processes", () => {
     writeReceipt(receipt);
 
     expect(receipt.status).toBe("PASS");
-  });
+    // Two child `bun` processes each boot PGlite; a cold WASM compile runs
+    // past vitest's 5s default.
+  }, 120_000);
 });
