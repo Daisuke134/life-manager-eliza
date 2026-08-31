@@ -127,9 +127,19 @@ describe("GA-10 replay through the effect kernel", () => {
     expect(second.replayed).toBe(true);
   });
 
-  it("keeps the historical counts, so the replay adds no verified proposal", () => {
-    expect(FIXTURE.pre_effect.verified_count_before).toBe(32);
-    expect(FIXTURE.post_effect.verified_count).toBe(33);
+  it("commits against the proposal the buyer actually received", async () => {
+    const fresh = harness(["absent", "present"]);
+    const result = await runEffectReceiptKernel(REQUEST, fresh.deps);
+
+    // The one execution has to land on proposal 27861812, not merely on some
+    // applied receipt — and the counts say it added exactly one.
+    expect(result.effect_started).toBe(true);
+    expect((result.receipt as { commit: { id: string } }).commit.id).toBe(
+      FIXTURE.application_external_id,
+    );
+    expect(FIXTURE.post_effect.verified_count - FIXTURE.pre_effect.verified_count_before).toBe(
+      fresh.executeCount,
+    );
     expect(FIXTURE.terminal_state.verified_count_after_replay).toBe(
       FIXTURE.post_effect.verified_count,
     );
