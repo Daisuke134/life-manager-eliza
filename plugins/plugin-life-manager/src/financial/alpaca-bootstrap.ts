@@ -9,6 +9,8 @@ export type AlpacaBootstrapCheckpointPhase =
   | "START"
   | "SIGNUP"
   | "VERIFY"
+  | "MFA"
+  | "API"
   | "READY"
   | "BLOCKED";
 export type AlpacaBootstrapBlockedReason =
@@ -20,6 +22,7 @@ export type AlpacaBootstrapAction =
   | "CREATE_PAPER_ACCOUNT"
   | "VERIFY_EMAIL"
   | "CONFIGURE_MFA"
+  | "BIND_API_KEYS"
   | "RETRY_BOOTSTRAP"
   | "RETRY_CLI_READBACK"
   | "ACCOUNT_OWNER_ACTION"
@@ -46,11 +49,12 @@ export interface AlpacaCliReadback {
 export type AlpacaSignupStepResult =
   | {
       readonly status: "continue";
-      readonly phase: "SIGNUP" | "VERIFY";
+      readonly phase: "SIGNUP" | "VERIFY" | "MFA" | "API";
       readonly nextAction:
         | "CREATE_PAPER_ACCOUNT"
         | "VERIFY_EMAIL"
-        | "CONFIGURE_MFA";
+        | "CONFIGURE_MFA"
+        | "BIND_API_KEYS";
       readonly boundCredentialRefs?: readonly string[];
     }
   | {

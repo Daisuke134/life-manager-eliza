@@ -83,11 +83,13 @@ describe("local Alpaca adapter", () => {
         dependencies.requiredCredentialRefs,
       );
       expect(Object.keys(resolution.privateHandle as object).sort()).toEqual([
+        "account_id",
         "api_key",
         "api_secret",
         "email",
         "paper_endpoint",
         "password",
+        "recovery_code",
         "totp_secret",
       ]);
 

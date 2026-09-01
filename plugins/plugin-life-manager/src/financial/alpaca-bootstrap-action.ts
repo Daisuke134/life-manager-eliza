@@ -17,7 +17,15 @@ import type {
 export const ALPACA_BOOTSTRAP_TASK_NAME =
   "LIFE_MANAGER_ALPACA_BOOTSTRAP_CHECKPOINT" as const;
 const TASK_TAGS = ["life-manager", "alpaca", "bootstrap-checkpoint"] as const;
-const PHASES = new Set(["START", "SIGNUP", "VERIFY", "READY", "BLOCKED"]);
+const PHASES = new Set([
+  "START",
+  "SIGNUP",
+  "VERIFY",
+  "MFA",
+  "API",
+  "READY",
+  "BLOCKED",
+]);
 
 interface CheckpointRuntime {
   readonly agentId: UUID;
@@ -93,7 +101,7 @@ export async function advanceAlpacaBootstrapCheckpoint(
 
 export async function setAlpacaBootstrapCheckpointPhase(
   runtime: CheckpointRuntime,
-  phase: "SIGNUP" | "VERIFY",
+  phase: "SIGNUP" | "VERIFY" | "MFA" | "API",
 ): Promise<void> {
   const tasks = await runtime.getTasks({
     tags: [...TASK_TAGS],
@@ -111,8 +119,12 @@ export async function setAlpacaBootstrapCheckpointPhase(
         alpacaBootstrap: {
           checkpoint: { ...current, phase },
           phase: "BOOTSTRAP_REQUIRED",
-          nextAction:
-            phase === "VERIFY" ? "CONFIGURE_MFA" : "CREATE_PAPER_ACCOUNT",
+          nextAction: {
+            SIGNUP: "CREATE_PAPER_ACCOUNT",
+            VERIFY: "CONFIGURE_MFA",
+            MFA: "CONFIGURE_MFA",
+            API: "BIND_API_KEYS",
+          }[phase],
         },
       },
     },

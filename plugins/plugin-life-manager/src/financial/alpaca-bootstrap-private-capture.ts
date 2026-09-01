@@ -4,6 +4,7 @@
  */
 import { createHmac } from "node:crypto";
 import type { Action, ActionResult, IAgentRuntime } from "@elizaos/core";
+import { setAlpacaBootstrapCheckpointPhase } from "./alpaca-bootstrap-action.js";
 import {
   type AlpacaCapturedCredentialField,
   type AlpacaLocalAdapterOptions,
@@ -168,10 +169,20 @@ export const alpacaBootstrapPrivateCaptureAction: Action = {
   validate: async (runtime) => runtime.getService("browser") !== null,
   handler: async (runtime, _message, _state, options) => {
     try {
-      return await captureAlpacaPrivateCredential(
+      const input = parameters<CaptureInput>(options);
+      const result = await captureAlpacaPrivateCredential(
         runtime,
-        parameters<CaptureInput>(options),
+        input,
       );
+      if (result.success && input.field) {
+        await setAlpacaBootstrapCheckpointPhase(
+          runtime,
+          input.field === "totp_secret" || input.field === "recovery_code"
+            ? "MFA"
+            : "API",
+        );
+      }
+      return result;
     } catch {
       // error-policy:J1 browser/credential boundary returns a redacted failure.
       return { success: false, text: "Alpaca private capture failed safely." };

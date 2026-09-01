@@ -1,7 +1,7 @@
 /**
  * Binds the bootstrap contract to the local Alpaca CLI and private credential
- * file. Only the six values needed by paper CLI commands cross this adapter
- * boundary; account identifiers and recovery material never enter the handle.
+ * file. Bootstrap values remain private; only CLI credentials are injected
+ * into the pinned paper CLI process.
  */
 import { execFile as nodeExecFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -66,8 +66,10 @@ const REQUIRED_FIELDS = [
   "email",
   "password",
   "totp_secret",
+  "recovery_code",
   "api_key",
   "api_secret",
+  "account_id",
   "paper_endpoint",
 ] as const;
 const REQUIRED_REFS = Object.freeze(
@@ -435,10 +437,27 @@ export function createLocalAlpacaBootstrapDependencies(
       const boundCredentialRefs = request.credentialRefs.length
         ? []
         : seedSignupRecord(credentialsPath, ownerProfilePath);
+      const missing = new Set(request.missingRefs);
+      const needsMfa = ["totp_secret", "recovery_code"].some((field) =>
+        missing.has(`credential://alpaca/${field}`),
+      );
+      const afterEmailVerification = !["START", "SIGNUP"].includes(request.phase);
+      const phase = afterEmailVerification
+        ? needsMfa
+          ? "MFA"
+          : "API"
+        : "SIGNUP";
+      const nextAction = afterEmailVerification
+        ? needsMfa
+          ? "CONFIGURE_MFA"
+          : "BIND_API_KEYS"
+        : request.phase === "START"
+          ? "CREATE_PAPER_ACCOUNT"
+          : "VERIFY_EMAIL";
       return {
         status: "continue",
-        phase: "SIGNUP",
-        nextAction: "CREATE_PAPER_ACCOUNT",
+        phase,
+        nextAction,
         ...(boundCredentialRefs.length ? { boundCredentialRefs } : {}),
       };
     },
