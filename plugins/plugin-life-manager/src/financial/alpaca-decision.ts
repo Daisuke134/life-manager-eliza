@@ -175,8 +175,6 @@ export async function decideAndPersistAlpacaTrade(
     params: {
       prompt,
       messages: [{ role: "user", content: prompt }],
-      responseFormat: { type: "json_object" },
-      responseSchema: schema,
       voiceOutput: "internal",
       signal: request.signal,
     },
