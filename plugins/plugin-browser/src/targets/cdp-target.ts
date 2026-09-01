@@ -51,7 +51,6 @@ async function connectedPage(
     : Number.NaN;
   const page =
     (Number.isInteger(requestedIndex) ? pages[requestedIndex] : undefined) ??
-    pages.find((page) => page.url().includes("app.alpaca.markets")) ??
     pages.findLast((page) => page.url() !== "about:blank") ??
     pages[0] ??
     (await browser.newPage());
@@ -161,7 +160,7 @@ async function execute(
       );
       return await result(browser, command, page, value);
     } else if (command.subaction === "inspect") {
-      const elements = await page.$$eval(
+      const inspection = await page.$$eval(
         "a,button,input,select,textarea,[role='button'],[role='link']",
         (nodes) => {
           const path = (element: Element): string => {
@@ -181,7 +180,7 @@ async function execute(
             }
             return parts.join(" > ");
           };
-          return nodes.slice(0, 200).map((element, index) => {
+          const elements = nodes.slice(0, 200).map((element, index) => {
             const node = element as HTMLElement;
             const id = node.id ? `#${CSS.escape(node.id)}` : "";
             const testId = node.getAttribute("data-testid");
@@ -205,11 +204,15 @@ async function execute(
               value: null,
             };
           });
+          return {
+            text: (document.body?.innerText ?? "").trim().slice(0, 50_000),
+            elements,
+          };
         },
       );
       return {
-        ...(await result(browser, command, page)),
-        elements,
+        ...(await result(browser, command, page, inspection.text)),
+        elements: inspection.elements,
       };
     } else if (command.subaction === "screenshot") {
       const data = await page.screenshot({
