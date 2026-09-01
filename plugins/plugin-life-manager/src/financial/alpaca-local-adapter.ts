@@ -52,12 +52,46 @@ export interface AlpacaLocalAdapterOptions {
   readonly execFile?: AlpacaExecFile;
 }
 
+export interface AlpacaMarketObservation {
+  readonly paper: true;
+  readonly accountStatus: "ACTIVE" | "UNKNOWN";
+  readonly cash: number;
+  readonly equity: number;
+  readonly symbol: string;
+  readonly latestPrice: number;
+  readonly latestTradeAt: string;
+  readonly optionContracts: number;
+}
+
+export interface AlpacaDefinedRiskOrderRequest {
+  readonly paper: true;
+  readonly clientOrderId: string;
+  readonly quantity: number;
+  readonly limitPrice: number;
+  readonly legs: readonly {
+    readonly symbol: string;
+    readonly ratioQuantity: number;
+    readonly positionIntent:
+      "buy_to_open" | "sell_to_open" | "buy_to_close" | "sell_to_close";
+  }[];
+}
+
+export interface AlpacaPaperOrderReceipt {
+  readonly paper: true;
+  readonly id: string;
+  readonly clientOrderId: string;
+  readonly status: string;
+}
+
+export interface AlpacaCliProvider {
+  observe(symbol: string): Promise<AlpacaMarketObservation>;
+  submitDefinedRiskOrder(
+    request: AlpacaDefinedRiskOrderRequest,
+  ): Promise<AlpacaPaperOrderReceipt>;
+}
+
 export type AlpacaCapturedCredentialField =
-  | "totp_secret"
-  | "recovery_code"
-  | "api_key"
-  | "api_secret"
-  | "account_id";
+  "totp_secret" | "recovery_code" | "api_key" | "api_secret" | "account_id";
 
 const PAPER_ENDPOINT = "https://paper-api.alpaca.markets/v2";
 const MAX_FILE_BYTES = 1_048_576;
@@ -221,7 +255,8 @@ export function storeLocalAlpacaCredential(
   value: string,
   options: Pick<AlpacaLocalAdapterOptions, "credentialsPath"> = {},
 ): void {
-  if (!secretString(value)) throw new Error("Captured Alpaca credential is invalid");
+  if (!secretString(value))
+    throw new Error("Captured Alpaca credential is invalid");
   const credentialsPath =
     options.credentialsPath ??
     join(homedir(), ".local", "share", "anicca", "credentials.json");
@@ -238,7 +273,10 @@ export function storeLocalAlpacaCredential(
       ? { ...record, [field]: value, updated_at: new Date().toISOString() }
       : record,
   );
-  writeCredentialDocument(credentialsPath, { ...document, credentials: updated });
+  writeCredentialDocument(credentialsPath, {
+    ...document,
+    credentials: updated,
+  });
 }
 
 function seedSignupRecord(
@@ -374,6 +412,169 @@ function unsupportedVersion(): AlpacaCliReadback {
   };
 }
 
+function safeToken(value: string, name: string): string {
+  if (!value || value.length > 128 || hasControl(value)) {
+    throw new Error(`Alpaca ${name} is invalid`);
+  }
+  return value;
+}
+
+function stringField(record: Record<string, unknown>, field: string): string {
+  const value = record[field];
+  if (typeof value !== "string") throw new Error("CLI string is invalid");
+  return safeToken(value, field);
+}
+
+export function createLocalAlpacaCliProvider(
+  options: AlpacaLocalAdapterOptions = {},
+): AlpacaCliProvider {
+  const credentialsPath =
+    options.credentialsPath ??
+    join(homedir(), ".local", "share", "anicca", "credentials.json");
+  const cliPath = options.cliPath ?? join(homedir(), ".local", "bin", "alpaca");
+  const runner = options.execFile ?? defaultExecFile;
+  const context = async () => {
+    const handle = privateHandle(credentialsPath);
+    if (
+      handle?.paper_endpoint !== PAPER_ENDPOINT ||
+      !secretString(handle.api_key) ||
+      !secretString(handle.api_secret)
+    )
+      throw new Error("Alpaca paper credentials are unavailable");
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ALPACA_API_KEY: handle.api_key,
+      ALPACA_SECRET_KEY: handle.api_secret,
+      ALPACA_LIVE_TRADE: "false",
+    };
+    const version = (await command(runner, cliPath, ["version"], env)).trim();
+    if (version !== ALPACA_CLI_VERSION)
+      throw new Error("Alpaca CLI version is not pinned");
+    return env;
+  };
+  return {
+    observe: async (rawSymbol) => {
+      const symbol = safeToken(rawSymbol.toUpperCase(), "symbol");
+      const env = await context();
+      const account = json(await command(runner, cliPath, ACCOUNT_ARGS, env));
+      const trade = json(
+        await command(
+          runner,
+          cliPath,
+          [
+            "data",
+            "latest-trade",
+            "--symbol",
+            symbol,
+            "--quiet",
+            "--jq",
+            "{symbol:.symbol,price:(.trade.p|tonumber),timestamp:.trade.t}",
+          ],
+          env,
+        ),
+      );
+      const chain = json(
+        await command(
+          runner,
+          cliPath,
+          [
+            "data",
+            "option",
+            "chain",
+            "--underlying-symbol",
+            symbol,
+            "--limit",
+            "100",
+            "--quiet",
+            "--jq",
+            "{count:(.snapshots|length)}",
+          ],
+          env,
+        ),
+      );
+      return {
+        paper: true,
+        accountStatus:
+          account.accountStatus === "ACTIVE" ? "ACTIVE" : "UNKNOWN",
+        cash: numberField(account, "cash"),
+        equity: numberField(account, "equity"),
+        symbol: stringField(trade, "symbol"),
+        latestPrice: numberField(trade, "price"),
+        latestTradeAt: stringField(trade, "timestamp"),
+        optionContracts: numberField(chain, "count"),
+      };
+    },
+    submitDefinedRiskOrder: async (request) => {
+      if (request.paper !== true)
+        throw new Error("Live Alpaca orders are forbidden");
+      if (
+        !Number.isInteger(request.quantity) ||
+        request.quantity < 1 ||
+        !Number.isFinite(request.limitPrice) ||
+        request.limitPrice <= 0 ||
+        request.legs.length < 2 ||
+        request.legs.length > 4
+      )
+        throw new Error("Alpaca defined-risk order is invalid");
+      const clientOrderId = safeToken(request.clientOrderId, "client order ID");
+      const legs = request.legs.map((leg) => ({
+        symbol: safeToken(leg.symbol.toUpperCase(), "option symbol"),
+        ratio_qty: String(leg.ratioQuantity),
+        position_intent: leg.positionIntent,
+      }));
+      if (
+        legs.some(
+          (leg) =>
+            !/^\d+$/.test(leg.ratio_qty) ||
+            leg.ratio_qty === "0" ||
+            ![
+              "buy_to_open",
+              "sell_to_open",
+              "buy_to_close",
+              "sell_to_close",
+            ].includes(leg.position_intent),
+        )
+      )
+        throw new Error("Alpaca leg ratio is invalid");
+      const env = await context();
+      const receipt = json(
+        await command(
+          runner,
+          cliPath,
+          [
+            "order",
+            "submit",
+            "--order-class",
+            "mleg",
+            "--qty",
+            String(request.quantity),
+            "--type",
+            "limit",
+            "--limit-price",
+            String(request.limitPrice),
+            "--time-in-force",
+            "day",
+            "--legs",
+            JSON.stringify(legs),
+            "--client-order-id",
+            clientOrderId,
+            "--quiet",
+            "--jq",
+            "{id:.id,clientOrderId:.client_order_id,status:.status}",
+          ],
+          env,
+        ),
+      );
+      return {
+        paper: true,
+        id: stringField(receipt, "id"),
+        clientOrderId: stringField(receipt, "clientOrderId"),
+        status: stringField(receipt, "status"),
+      };
+    },
+  };
+}
+
 export function createLocalAlpacaBootstrapDependencies(
   options: AlpacaLocalAdapterOptions = {},
 ): AlpacaBootstrapDependencies {
@@ -441,7 +642,9 @@ export function createLocalAlpacaBootstrapDependencies(
       const needsMfa = ["totp_secret", "recovery_code"].some((field) =>
         missing.has(`credential://alpaca/${field}`),
       );
-      const afterEmailVerification = !["START", "SIGNUP"].includes(request.phase);
+      const afterEmailVerification = !["START", "SIGNUP"].includes(
+        request.phase,
+      );
       const phase = afterEmailVerification
         ? needsMfa
           ? "MFA"
