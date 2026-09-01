@@ -11,6 +11,7 @@ const SUPPORTED = new Set([
   "click",
   "fill",
   "get",
+  "inspect",
   "list",
   "navigate",
   "open",
@@ -156,6 +157,53 @@ async function execute(
         { mode: command.getMode, attribute: command.attribute },
       );
       return await result(browser, command, page, value);
+    } else if (command.subaction === "inspect") {
+      const elements = await page.$$eval(
+        "a,button,input,select,textarea,[role='button'],[role='link']",
+        (nodes) => {
+          const path = (element: Element): string => {
+            const parts: string[] = [];
+            let current: Element | null = element;
+            while (current && current !== document.documentElement) {
+              if (current.id) {
+                parts.unshift(`#${CSS.escape(current.id)}`);
+                break;
+              }
+              const tag = current.tagName.toLowerCase();
+              const siblings = Array.from(current.parentElement?.children ?? []).filter(
+                (candidate) => candidate.tagName === current?.tagName,
+              );
+              parts.unshift(`${tag}:nth-of-type(${siblings.indexOf(current) + 1})`);
+              current = current.parentElement;
+            }
+            return parts.join(" > ");
+          };
+          return nodes.slice(0, 200).map((element, index) => {
+            const node = element as HTMLElement;
+            const id = node.id ? `#${CSS.escape(node.id)}` : "";
+            const name = node.getAttribute("name");
+            const named = name
+              ? `${node.tagName.toLowerCase()}[name=${JSON.stringify(name)}]`
+              : "";
+            return {
+              ref: `cdp_${index}`,
+              selector: id || named || path(node),
+              tag: node.tagName.toLowerCase(),
+              text: (node.innerText || node.getAttribute("aria-label") || "")
+                .trim()
+                .slice(0, 500),
+              type: node.getAttribute("type"),
+              name,
+              href: node.getAttribute("href"),
+              value: null,
+            };
+          });
+        },
+      );
+      return {
+        ...(await result(browser, command, page)),
+        elements,
+      };
     } else if (command.subaction === "screenshot") {
       const data = await page.screenshot({
         encoding: "base64",
