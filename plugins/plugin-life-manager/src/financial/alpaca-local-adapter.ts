@@ -52,6 +52,13 @@ export interface AlpacaLocalAdapterOptions {
   readonly execFile?: AlpacaExecFile;
 }
 
+export type AlpacaCapturedCredentialField =
+  | "totp_secret"
+  | "recovery_code"
+  | "api_key"
+  | "api_secret"
+  | "account_id";
+
 const PAPER_ENDPOINT = "https://paper-api.alpaca.markets/v2";
 const MAX_FILE_BYTES = 1_048_576;
 const MAX_OUTPUT_BYTES = 64 * 1024;
@@ -185,6 +192,53 @@ function ownerEmail(path: string): string {
   return email;
 }
 
+function writeCredentialDocument(
+  credentialsPath: string,
+  document: Record<string, unknown>,
+): void {
+  const temporary = `${credentialsPath}.tmp.${process.pid}.${randomBytes(8).toString("hex")}`;
+  try {
+    writeFileSync(temporary, `${JSON.stringify(document, null, 2)}\n`, {
+      mode: 0o600,
+      flag: "wx",
+    });
+    renameSync(temporary, credentialsPath);
+  } catch (error) {
+    // error-policy:J2 preserve the write failure after best-effort cleanup.
+    try {
+      unlinkSync(temporary);
+    } catch {
+      // error-policy:J6 cleanup-only failure cannot replace the write error.
+    }
+    throw error;
+  }
+}
+
+export function storeLocalAlpacaCredential(
+  field: AlpacaCapturedCredentialField,
+  value: string,
+  options: Pick<AlpacaLocalAdapterOptions, "credentialsPath"> = {},
+): void {
+  if (!secretString(value)) throw new Error("Captured Alpaca credential is invalid");
+  const credentialsPath =
+    options.credentialsPath ??
+    join(homedir(), ".local", "share", "anicca", "credentials.json");
+  const records = credentialRecords(credentialsPath);
+  const matches = records?.filter(
+    (record) => record.service === "app.alpaca.markets",
+  );
+  if (!records || matches?.length !== 1 || !matches[0]) {
+    throw new Error("Alpaca credential record is unavailable");
+  }
+  const document = JSON.parse(readFileSync(credentialsPath, "utf8"));
+  const updated = records.map((record) =>
+    record === matches[0]
+      ? { ...record, [field]: value, updated_at: new Date().toISOString() }
+      : record,
+  );
+  writeCredentialDocument(credentialsPath, { ...document, credentials: updated });
+}
+
 function seedSignupRecord(
   credentialsPath: string,
   profilePath: string,
@@ -211,22 +265,7 @@ function seedSignupRecord(
       },
     ],
   };
-  const temporary = `${credentialsPath}.tmp.${process.pid}.${randomBytes(8).toString("hex")}`;
-  try {
-    writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, {
-      mode: 0o600,
-      flag: "wx",
-    });
-    renameSync(temporary, credentialsPath);
-  } catch (error) {
-    // error-policy:J2 preserve the write failure after best-effort cleanup.
-    try {
-      unlinkSync(temporary);
-    } catch {
-      // error-policy:J6 cleanup-only failure cannot replace the write error.
-    }
-    throw error;
-  }
+  writeCredentialDocument(credentialsPath, next);
   return REQUIRED_REFS.filter(
     (ref) =>
       ref.endsWith("/email") ||

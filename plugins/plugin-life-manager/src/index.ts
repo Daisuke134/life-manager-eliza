@@ -27,6 +27,10 @@ import {
 } from "./financial/alpaca-bootstrap.js";
 import { alpacaBootstrapAction } from "./financial/alpaca-bootstrap-action.js";
 import { alpacaBootstrapEmailVerifyAction } from "./financial/alpaca-bootstrap-email-verify.js";
+import {
+  alpacaBootstrapPrivateCaptureAction,
+  alpacaBootstrapTotpFillAction,
+} from "./financial/alpaca-bootstrap-private-capture.js";
 import { alpacaBootstrapSecretFillAction } from "./financial/alpaca-bootstrap-secret-fill.js";
 import {
   type AlpacaLocalAdapterOptions,
@@ -174,7 +178,9 @@ export const lifeManagerPlugin: Plugin = {
     lifeManagerHealthAction,
     alpacaBootstrapAction,
     alpacaBootstrapEmailVerifyAction,
+    alpacaBootstrapPrivateCaptureAction,
     alpacaBootstrapSecretFillAction,
+    alpacaBootstrapTotpFillAction,
   ],
   providers: [lifeManagerHealthProvider],
   schema: lifeManagerDbSchema,
