@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@elizaos/core": "workspace:*",
+    "@elizaos/plugin-scheduling": "workspace:*",
     "drizzle-orm": "0.45.2"
   },
   "devDependencies": {

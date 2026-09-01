@@ -9,8 +9,12 @@
     "noUncheckedIndexedAccess": false,
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "noEmit": true,
+    "paths": {
+      "@elizaos/plugin-scheduling": ["../plugin-scheduling/src/index.ts"]
+    },
     "types": ["node", "bun", "vitest"]
   },
   "include": ["src/**/*.ts"],
