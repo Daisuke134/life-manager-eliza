@@ -164,7 +164,8 @@ export async function decideAndPersistAlpacaTrade(
   const prompt = [
     "Decide whether this paper account should take one defined-risk options trade now.",
     `Return only one JSON object shaped as ${JSON.stringify({ action: ALPACA_TRADING_DECISION, params: Object.fromEntries(fields.map((field) => [field, `<${field}>`])) })}.`,
-    "Prefer NO_TRADE when evidence is insufficient. For NO_TRADE set maxLossUsd to 0. Do not execute or claim profit.",
+    "Every thesis, structure, invalidation, and exitPlan string must be non-empty, including for NO_TRADE.",
+    "For NO_TRADE use candidateRef NO_TRADE and maxLossUsd 0. For TRADE use exactly one offered candidateRef and its exact offered maxLossUsd. Do not execute or claim profit.",
     `Objective: ${request.objective}`,
     `Observation: ${JSON.stringify(request.observation)}`,
     `Allowed evidence references: ${JSON.stringify(request.evidenceRefs)}`,
