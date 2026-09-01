@@ -49,13 +49,27 @@ export interface AlpacaRiskGateResult {
 
 export function evaluateAlpacaRisk(input: AlpacaRiskGateInput): AlpacaRiskGateResult {
   const reasons: string[] = [];
+  const structures = new Set([
+    "long_call",
+    "long_put",
+    "bull_call_debit_spread",
+    "bear_put_debit_spread",
+  ]);
   const finite = [
     input.nowMs, input.quantity, input.netDebitPerShare, input.equityUsd, input.cashUsd,
     input.highWaterEquityUsd, input.dailyPnlUsd, input.openMaxLossUsd, input.borrowedValueUsd,
     input.optionsLevel, input.positionsCount, input.openOrdersCount, input.quoteBid, input.quoteAsk,
     input.quoteAtMs, input.greeksAtMs, input.dte,
   ].every(Number.isFinite);
-  if (!finite || input.equityUsd <= 0 || input.highWaterEquityUsd <= 0) {
+  if (
+    !finite ||
+    (input.lastEntryAtMs !== undefined && !Number.isFinite(input.lastEntryAtMs)) ||
+    !structures.has(input.structure) ||
+    !Number.isInteger(input.optionsLevel) ||
+    !Number.isInteger(input.positionsCount) || input.positionsCount < 0 ||
+    !Number.isInteger(input.openOrdersCount) || input.openOrdersCount < 0 ||
+    input.equityUsd <= 0 || input.highWaterEquityUsd <= 0
+  ) {
     return Object.freeze({ allowed: false, calculatedMaxLossUsd: 0, reasons: Object.freeze(["INVALID_RISK_INPUT"]) });
   }
   if (input.decision.status === "NO_TRADE") reasons.push("NO_TRADE");

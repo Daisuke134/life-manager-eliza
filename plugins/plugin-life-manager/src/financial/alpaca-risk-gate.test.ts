@@ -27,5 +27,7 @@ describe("Alpaca deterministic risk gate", () => {
       "STALE_QUOTE", "STALE_GREEKS", "SPREAD_LIMIT", "DTE_LIMIT", "OPTIONS_LEVEL",
       "LEVERAGE_FORBIDDEN", "SESSION_CLOSED", "RECONCILIATION_UNHEALTHY",
     ]));
+    expect(evaluateAlpacaRisk({ ...allowed, structure: "naked_short" } as never).reasons)
+      .toEqual(["INVALID_RISK_INPUT"]);
   });
 });
