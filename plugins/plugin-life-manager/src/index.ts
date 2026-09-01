@@ -8,42 +8,63 @@ import {
   type ProviderResult,
   Service,
 } from "@elizaos/core";
-import { lifeManagerDbSchema } from "./db/schema.js";
-import {
-  persistGoalWorkItem as persistGoalWorkItemRows,
-  type GoalWorkItemDatabase,
-  type GoalWorkItemPersistenceInput,
-  type GoalWorkItemResult,
-} from "./goal-work-item.js";
 import {
   authorizeLifeManagerCapability as authorizeCapability,
   type LifeManagerAuthorizationResolver,
 } from "./capability-authorization.js";
+import { lifeManagerDbSchema } from "./db/schema.js";
+import {
+  type EffectReceiptKernelDependencies,
+  type EffectReceiptKernelRequest,
+  type EffectReceiptKernelResult,
+  runEffectReceiptKernel as runEffectReceiptKernelOperation,
+} from "./effect-receipt-kernel.js";
+import {
+  type AlpacaBootstrapCheckpoint,
+  type AlpacaBootstrapDependencies,
+  type AlpacaBootstrapResult,
+  runAlpacaBootstrap as runAlpacaBootstrapOperation,
+} from "./financial/alpaca-bootstrap.js";
+import { alpacaBootstrapAction } from "./financial/alpaca-bootstrap-action.js";
+import { alpacaBootstrapBrowserAction } from "./financial/alpaca-bootstrap-browser.js";
+import { alpacaBootstrapEmailVerifyAction } from "./financial/alpaca-bootstrap-email-verify.js";
+import {
+  alpacaBootstrapPrivateCaptureAction,
+  alpacaBootstrapTotpFillAction,
+} from "./financial/alpaca-bootstrap-private-capture.js";
+import { alpacaBootstrapSecretFillAction } from "./financial/alpaca-bootstrap-secret-fill.js";
+import { alpacaPaperAccountFormAction } from "./financial/alpaca-paper-account-form.js";
+import { alpacaPaperAccountRoutes } from "./financial/alpaca-paper-account-routes.js";
+import {
+  type AlpacaLocalAdapterOptions,
+  createLocalAlpacaBootstrapDependencies,
+} from "./financial/alpaca-local-adapter.js";
+import {
+  type GoalReflection,
+  type GoalReflectionDatabase,
+  type GoalReflectionReadInput,
+  readGoalReflection,
+} from "./goal-reflection.js";
+import {
+  type GoalWorkItemDatabase,
+  type GoalWorkItemPersistenceInput,
+  type GoalWorkItemResult,
+  persistGoalWorkItem as persistGoalWorkItemRows,
+} from "./goal-work-item.js";
+import { LifeManagerMigrationService } from "./services/migration.js";
+import { ProviderBridgeService } from "./services/provider-bridge.js";
 import {
   decideSpecialistStep as decideSpecialistStepOperation,
   type SpecialistDecision,
   type SpecialistDecisionRequest,
 } from "./specialist-decision.js";
-import {
-  runEffectReceiptKernel as runEffectReceiptKernelOperation,
-  type EffectReceiptKernelDependencies,
-  type EffectReceiptKernelRequest,
-  type EffectReceiptKernelResult,
-} from "./effect-receipt-kernel.js";
-import {
-  readGoalReflection,
-  type GoalReflection,
-  type GoalReflectionDatabase,
-  type GoalReflectionReadInput,
-} from "./goal-reflection.js";
-import { LifeManagerMigrationService } from "./services/migration.js";
-import { ProviderBridgeService } from "./services/provider-bridge.js";
 
 export const LIFE_MANAGER_SERVICE_TYPE = "LIFE_MANAGER" as const;
 
 export class LifeManagerService extends Service {
   static serviceType = LIFE_MANAGER_SERVICE_TYPE;
-  capabilityDescription = "Hosts Life Manager capabilities inside the existing Eliza runtime.";
+  capabilityDescription =
+    "Hosts Life Manager capabilities inside the existing Eliza runtime.";
   static async start(runtime: IAgentRuntime): Promise<LifeManagerService> {
     return new LifeManagerService(runtime);
   }
@@ -52,7 +73,9 @@ export class LifeManagerService extends Service {
   ): Promise<GoalWorkItemResult> {
     const db = this.runtime.db as unknown as GoalWorkItemDatabase | undefined;
     if (!db || typeof db.transaction !== "function") {
-      throw new Error("Life Manager Goal WorkItem requires plugin-sql runtime.db");
+      throw new Error(
+        "Life Manager Goal WorkItem requires plugin-sql runtime.db",
+      );
     }
     return persistGoalWorkItemRows(db, input);
   }
@@ -74,6 +97,21 @@ export class LifeManagerService extends Service {
   ): Promise<EffectReceiptKernelResult> {
     return runEffectReceiptKernelOperation(request, dependencies);
   }
+  async runAlpacaBootstrap(
+    checkpoint: AlpacaBootstrapCheckpoint,
+    dependencies: AlpacaBootstrapDependencies,
+  ): Promise<AlpacaBootstrapResult> {
+    return runAlpacaBootstrapOperation(checkpoint, dependencies);
+  }
+  async runLocalAlpacaBootstrap(
+    checkpoint: AlpacaBootstrapCheckpoint,
+    options: AlpacaLocalAdapterOptions = {},
+  ): Promise<AlpacaBootstrapResult> {
+    return runAlpacaBootstrapOperation(
+      checkpoint,
+      createLocalAlpacaBootstrapDependencies(options),
+    );
+  }
   async reflectGoal(input: GoalReflectionReadInput): Promise<GoalReflection> {
     const db = this.runtime.db as unknown as GoalReflectionDatabase | undefined;
     if (
@@ -81,7 +119,9 @@ export class LifeManagerService extends Service {
       typeof db.select !== "function" ||
       typeof db.transaction !== "function"
     ) {
-      throw new Error("Life Manager Goal reflection requires plugin-sql runtime.db");
+      throw new Error(
+        "Life Manager Goal reflection requires plugin-sql runtime.db",
+      );
     }
     return readGoalReflection(db, input);
   }
@@ -90,13 +130,18 @@ export class LifeManagerService extends Service {
 
 export const lifeManagerHealthProvider: Provider = {
   name: "lifeManagerHealth",
-  description: "Reports whether the Life Manager plugin is registered in this Eliza runtime.",
+  description:
+    "Reports whether the Life Manager plugin is registered in this Eliza runtime.",
   descriptionCompressed: "Life Manager plugin health.",
   dynamic: true,
   get: async (runtime: IAgentRuntime): Promise<ProviderResult> => {
-    const registered = runtime.plugins.some((plugin) => plugin.name === "@elizaos/plugin-life-manager");
+    const registered = runtime.plugins.some(
+      (plugin) => plugin.name === "@elizaos/plugin-life-manager",
+    );
     return {
-      text: registered ? "Life Manager plugin: registered." : "Life Manager plugin: unavailable.",
+      text: registered
+        ? "Life Manager plugin: registered."
+        : "Life Manager plugin: unavailable.",
       values: { lifeManagerRegistered: registered },
     };
   },
@@ -104,14 +149,19 @@ export const lifeManagerHealthProvider: Provider = {
 
 export const lifeManagerHealthAction: Action = {
   name: "LIFE_MANAGER_HEALTH",
-  description: "Read the structural registration health of the Life Manager plugin.",
+  description:
+    "Read the structural registration health of the Life Manager plugin.",
   descriptionCompressed: "Read Life Manager plugin health.",
   validate: async () => true,
   handler: async (runtime: IAgentRuntime): Promise<ActionResult> => {
-    const registered = runtime.plugins.some((plugin) => plugin.name === "@elizaos/plugin-life-manager");
+    const registered = runtime.plugins.some(
+      (plugin) => plugin.name === "@elizaos/plugin-life-manager",
+    );
     return {
       success: registered,
-      text: registered ? "Life Manager plugin is registered." : "Life Manager plugin is unavailable.",
+      text: registered
+        ? "Life Manager plugin is registered."
+        : "Life Manager plugin is unavailable.",
       data: { lifeManagerRegistered: registered },
     };
   },
@@ -119,15 +169,26 @@ export const lifeManagerHealthAction: Action = {
 
 export const lifeManagerPlugin: Plugin = {
   name: "@elizaos/plugin-life-manager",
-  description: "Life Manager general-agent capabilities hosted by the existing Eliza runtime.",
+  description:
+    "Life Manager general-agent capabilities hosted by the existing Eliza runtime.",
   dependencies: ["@elizaos/plugin-sql"],
   services: [
     LifeManagerMigrationService,
     ProviderBridgeService,
     LifeManagerService,
   ],
-  actions: [lifeManagerHealthAction],
+  actions: [
+    lifeManagerHealthAction,
+    alpacaBootstrapAction,
+    alpacaBootstrapBrowserAction,
+    alpacaBootstrapEmailVerifyAction,
+    alpacaBootstrapPrivateCaptureAction,
+    alpacaBootstrapSecretFillAction,
+    alpacaBootstrapTotpFillAction,
+    alpacaPaperAccountFormAction,
+  ],
   providers: [lifeManagerHealthProvider],
+  routes: alpacaPaperAccountRoutes,
   schema: lifeManagerDbSchema,
 };
 

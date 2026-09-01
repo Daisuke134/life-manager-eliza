@@ -58,6 +58,7 @@ import {
   type BrowserBridgeRouteService,
 } from "./service.js";
 import { bridgeSupports } from "./targets/bridge-target.js";
+import { maybeCreateCdpTarget } from "./targets/cdp-target.js";
 import { maybeCreateStagehandTarget } from "./targets/stagehand-target.js";
 import {
   ensureBrowserWorkspaceDefaultTabWithRetry,
@@ -229,6 +230,15 @@ export class BrowserService extends Service {
       const message = err instanceof Error ? err.message : String(err);
       logger.debug(
         `[BrowserService] bridge target not registered at start: ${message}`,
+      );
+    }
+    try {
+      const cdpTarget = await maybeCreateCdpTarget();
+      if (cdpTarget) service.registerTarget(cdpTarget);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.debug(
+        `[BrowserService] CDP target not registered at start: ${message}`,
       );
     }
     try {
