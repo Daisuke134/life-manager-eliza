@@ -33,6 +33,7 @@ import {
   alpacaBootstrapTotpFillAction,
 } from "./financial/alpaca-bootstrap-private-capture.js";
 import { alpacaBootstrapSecretFillAction } from "./financial/alpaca-bootstrap-secret-fill.js";
+import { alpacaPaperAccountFormAction } from "./financial/alpaca-paper-account-form.js";
 import {
   type AlpacaLocalAdapterOptions,
   createLocalAlpacaBootstrapDependencies,
@@ -183,6 +184,7 @@ export const lifeManagerPlugin: Plugin = {
     alpacaBootstrapPrivateCaptureAction,
     alpacaBootstrapSecretFillAction,
     alpacaBootstrapTotpFillAction,
+    alpacaPaperAccountFormAction,
   ],
   providers: [lifeManagerHealthProvider],
   schema: lifeManagerDbSchema,
