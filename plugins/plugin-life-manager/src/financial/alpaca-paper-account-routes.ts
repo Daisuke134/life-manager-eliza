@@ -1,5 +1,13 @@
 import type { Route, RouteHandlerResult } from "@elizaos/core";
+import {
+  advanceAlpacaBootstrapCheckpoint,
+  setAlpacaBootstrapCheckpointPhase,
+} from "./alpaca-bootstrap-action.js";
 import { captureAlpacaPrivateCredential } from "./alpaca-bootstrap-private-capture.js";
+import type {
+  AlpacaBootstrapCheckpoint,
+  AlpacaBootstrapResult,
+} from "./alpaca-bootstrap.js";
 import { fillAlpacaPaperAccountForm } from "./alpaca-paper-account-form.js";
 
 export const alpacaPaperAccountRoutes: Route[] = [
@@ -65,7 +73,30 @@ export const alpacaPaperAccountRoutes: Route[] = [
         getMode: body.getMode as "attr" | "text" | "value",
         ...(typeof body.attribute === "string" ? { attribute: body.attribute } : {}),
       });
+      if (result.success && body.field === "account_id") {
+        await setAlpacaBootstrapCheckpointPhase(context.runtime, "API");
+      }
       return { status: result.success ? 200 : 409, body: result };
+    },
+  },
+  {
+    type: "POST",
+    path: "/api/life-manager/alpaca/bootstrap/advance",
+    rawPath: true,
+    routeHandler: async (context): Promise<RouteHandlerResult> => {
+      const service = context.runtime.getService("LIFE_MANAGER") as unknown as {
+        runLocalAlpacaBootstrap(
+          checkpoint: AlpacaBootstrapCheckpoint,
+        ): Promise<AlpacaBootstrapResult>;
+      } | null;
+      if (!service) {
+        return { status: 503, body: { error: "Life Manager service unavailable" } };
+      }
+      const result = await advanceAlpacaBootstrapCheckpoint(
+        context.runtime,
+        (checkpoint) => service.runLocalAlpacaBootstrap(checkpoint),
+      );
+      return { status: result.phase === "BLOCKED" ? 409 : 200, body: result };
     },
   },
 ];
