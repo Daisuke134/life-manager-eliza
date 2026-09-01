@@ -83,8 +83,15 @@ export interface AlpacaPaperOrderReceipt {
   readonly status: string;
 }
 
+export interface AlpacaPaperOrderReadback extends AlpacaPaperOrderReceipt {
+  readonly submittedAt: string;
+  readonly filledQuantity: number;
+  readonly filledAveragePrice?: number;
+}
+
 export interface AlpacaCliProvider {
   observe(symbol: string): Promise<AlpacaMarketObservation>;
+  findOrderByClientId(clientOrderId: string): Promise<AlpacaPaperOrderReadback | undefined>;
   submitDefinedRiskOrder(
     request: AlpacaDefinedRiskOrderRequest,
   ): Promise<AlpacaPaperOrderReceipt>;
@@ -502,6 +509,35 @@ export function createLocalAlpacaCliProvider(
         latestPrice: numberField(trade, "price"),
         latestTradeAt: stringField(trade, "timestamp"),
         optionContracts: numberField(chain, "count"),
+      };
+    },
+    findOrderByClientId: async (rawClientOrderId) => {
+      const clientOrderId = safeToken(rawClientOrderId, "client order ID");
+      const env = await context();
+      const order = json(
+        await command(
+          runner,
+          cliPath,
+          [
+            "order", "list", "--status", "all", "--limit", "500", "--nested", "--quiet", "--jq",
+            `first(.[] | select(.client_order_id == ${JSON.stringify(clientOrderId)})) // {found:false} | if .found == false then . else {found:true,id:.id,clientOrderId:.client_order_id,status:.status,submittedAt:.submitted_at,filledQuantity:(.filled_qty|tonumber),filledAveragePrice:(if .filled_avg_price then (.filled_avg_price|tonumber) else null end)} end`,
+          ],
+          env,
+        ),
+      );
+      if (order.found === false) return undefined;
+      if (order.found !== true) throw new Error("Alpaca order readback is invalid");
+      const average = order.filledAveragePrice;
+      if (average !== null && (typeof average !== "number" || !Number.isFinite(average)))
+        throw new Error("Alpaca fill price is invalid");
+      return {
+        paper: true,
+        id: stringField(order, "id"),
+        clientOrderId: stringField(order, "clientOrderId"),
+        status: stringField(order, "status"),
+        submittedAt: stringField(order, "submittedAt"),
+        filledQuantity: numberField(order, "filledQuantity"),
+        ...(typeof average === "number" ? { filledAveragePrice: average } : {}),
       };
     },
     submitDefinedRiskOrder: async (request) => {

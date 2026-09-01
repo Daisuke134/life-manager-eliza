@@ -94,7 +94,10 @@ describe("local Alpaca adapter", () => {
       ]);
 
       const result = await runAlpacaBootstrap(
-        { phase: "START", credentialRefs: [] },
+        {
+          phase: "API",
+          credentialRefs: [...dependencies.requiredCredentialRefs],
+        },
         dependencies,
       );
       expect(result).toMatchObject({
