@@ -95,6 +95,30 @@ async function result(
   };
 }
 
+async function click(page: Page, selector: string, realistic: boolean): Promise<void> {
+  const href = await page.$eval(
+    selector,
+    (element) => element instanceof HTMLAnchorElement ? element.href : null,
+  );
+  if (href) {
+    await page.goto(href, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    return;
+  }
+  const before = page.url();
+  try {
+    if (realistic) await page.click(selector);
+    else await page.$eval(selector, (element) => (element as HTMLElement).click());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (
+      page.url() === before ||
+      !message.includes("Execution context was destroyed")
+    ) {
+      throw error;
+    }
+  }
+}
+
 async function execute(
   cdpUrl: string,
   command: BrowserWorkspaceCommand,
@@ -120,10 +144,10 @@ async function execute(
       };
     } else if (command.subaction === "click") {
       if (!selector) throw new Error("CDP click requires selector");
-      await page.$eval(selector, (element) => (element as HTMLElement).click());
+      await click(page, selector, false);
     } else if (command.subaction === "realistic-click") {
       if (!selector) throw new Error("CDP click requires selector");
-      await page.click(selector);
+      await click(page, selector, true);
     } else if (["fill", "realistic-fill"].includes(command.subaction)) {
       if (!selector) throw new Error("CDP fill requires selector");
       await page.locator(selector).fill(command.value ?? command.text ?? "");
