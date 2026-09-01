@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "source_repository": "Daisuke134/life-manager",
+  "source_commit": "c9bea215b87755434704a5d16dd8c0a55aff1981",
+  "namespace": "docs/legacy-life-manager",
+  "entries": [
+    {
+      "source_path": "docs/superpowers/specs/2026-08-01-dais-life-manager-five-phase-execution-spec.md",
+      "target_path": "docs/legacy-life-manager/superpowers/specs/2026-08-01-dais-life-manager-five-phase-execution-spec.md",
+      "sha256": "87378399fc76e8a71f0390677eac4dc29fa69bf1134ddad2c6f815bf4b601e46"
+    },
+    {
+      "source_path": "docs/superpowers/specs/2026-08-24-life-manager-oss-onboarding-design.md",
+      "target_path": "docs/legacy-life-manager/superpowers/specs/2026-08-24-life-manager-oss-onboarding-design.md",
+      "sha256": "1a7b86e2633f8331a274e34c9aebe4f0e4b242493f842b9a52a8af2a3b3cab20"
+    },
+    {
+      "source_path": "docs/superpowers/specs/2026-06-30-gig-self-improving-multiapply-loop-design.md",
+      "target_path": "docs/legacy-life-manager/superpowers/specs/2026-06-30-gig-self-improving-multiapply-loop-design.md",
+      "sha256": "8d4f6fead14a4c2b9dba6edfa438af0a67d201712d2bed241aa0ef901284f8e8"
+    },
+    {
+      "source_path": "docs/superpowers/specs/2026-07-01-outer-improvement-loop-design.md",
+      "target_path": "docs/legacy-life-manager/superpowers/specs/2026-07-01-outer-improvement-loop-design.md",
+      "sha256": "f6a3929d9566bc4e49eb20eabbd56014b35683649939d54ea497eb3c56d1002c"
+    },
+    {
+      "source_path": "docs/superpowers/specs/2026-07-01-proactive-loop-architecture-and-cleanup-design.md",
+      "target_path": "docs/legacy-life-manager/superpowers/specs/2026-07-01-proactive-loop-architecture-and-cleanup-design.md",
+      "sha256": "b672a3c184afcd06b401c5493763ebd2c9c319f8f5fd8b9e8720f1278768777b"
+    },
+    {
+      "source_path": "docs/superpowers/plans/2026-08-28-general-agent-application-effect-kernel.md",
+      "target_path": "docs/legacy-life-manager/superpowers/plans/2026-08-28-general-agent-application-effect-kernel.md",
+      "sha256": "4c950ef05d15f1d16198aa0447ef30eebbc70df4188af8b371859f9762d39d0f"
+    },
+    {
+      "source_path": "docs/superpowers/plans/2026-08-28-general-agent-bounded-specialist-runtime.md",
+      "target_path": "docs/legacy-life-manager/superpowers/plans/2026-08-28-general-agent-bounded-specialist-runtime.md",
+      "sha256": "a884017c72b61936bbcba67b9de1b498a35982841b9dfdd2b6c7d56fcf74cbba"
+    },
+    {
+      "source_path": "docs/superpowers/plans/2026-08-28-general-agent-capability-manifest.md",
+      "target_path": "docs/legacy-life-manager/superpowers/plans/2026-08-28-general-agent-capability-manifest.md",
+      "sha256": "c88c21750c5f1c37ead9991738c9c9214433dcd7628e7f15b131373f532f5545"
+    },
+    {
+      "source_path": "docs/superpowers/plans/2026-08-28-general-agent-clean-release.md",
+      "target_path": "docs/legacy-life-manager/superpowers/plans/2026-08-28-general-agent-clean-release.md",
+      "sha256": "2a50ae68dbdd0dad17f7d691f3c364551686a268c414b8cf9633ed57dfc77521"
+    },
+    {
+      "source_path": "docs/superpowers/plans/2026-08-28-general-agent-dependency-retirement.md",
+      "target_path": "docs/legacy-life-manager/superpowers/plans/2026-08-28-general-agent-dependency-retirement.md",
+      "sha256": "7df0770da257089dde133de0565335187076ddac4fd52678e88107584f3b9dbd"
+    },
+    {
+      "source_path": "docs/superpowers/plans/2026-08-28-general-agent-first-application-canary.md",
+      "target_path": "docs/legacy-life-manager/superpowers/plans/2026-08-28-general-agent-first-application-canary.md",
+      "sha256": "3979167e27c2386868995134587a8325faa2dae1ab75252260f99b9d42a644a9"
+    },
+    {
+      "source_path": "docs/superpowers/plans/2026-08-28-general-agent-goal-work-item.md",
+      "target_path": "docs/legacy-life-manager/superpowers/plans/2026-08-28-general-agent-goal-work-item.md",
+      "sha256": "cabe75d0ca4fbbd283954a831eb4ce3d7836492a977b86e0a4371689f0ce6ef5"
+    },
+    {
+      "source_path": "docs/superpowers/plans/2026-08-28-general-agent-oss-manifest.md",
+      "target_path": "docs/legacy-life-manager/superpowers/plans/2026-08-28-general-agent-oss-manifest.md",
+      "sha256": "1408bba54cd4e8b9d0c1ff1e1e191c7fb6d189b271ce365d8c0f712b2c714eee"
+    },
+    {
+      "source_path": "docs/superpowers/plans/2026-08-28-hosted-general-agent-e2e.md",
+      "target_path": "docs/legacy-life-manager/superpowers/plans/2026-08-28-hosted-general-agent-e2e.md",
+      "sha256": "71c7da016e09d01b0d3c7b813c585e364f13fca6e952ba1dd0e794c72b25ecea"
+    },
+    {
+      "source_path": "docs/superpowers/plans/2026-08-28-hosted-general-agent-slice.md",
+      "target_path": "docs/legacy-life-manager/superpowers/plans/2026-08-28-hosted-general-agent-slice.md",
+      "sha256": "5a206a1c782cf8d50889bfdde8a2724f38bbf0769564c565db5a46a07487b870"
+    },
+    {
+      "source_path": "docs/superpowers/plans/2026-08-28-hosted-general-agent-worker.md",
+      "target_path": "docs/legacy-life-manager/superpowers/plans/2026-08-28-hosted-general-agent-worker.md",
+      "sha256": "8aa8929d86f34aecf037a66c4404fc61d9025c70aac2faff93c31e98bab8f33f"
+    },
+    {
+      "source_path": "docs/superpowers/plans/2026-08-29-eliza-local-foundation.md",
+      "target_path": "docs/legacy-life-manager/superpowers/plans/2026-08-29-eliza-local-foundation.md",
+      "sha256": "70bae1b26b1e2415d5ed427539426dc1ce6ff99558989447e1fa4a060f0a1bca"
+    },
+    {
+      "source_path": "docs/evidence/oss/oss-merge-1.md",
+      "target_path": "docs/legacy-life-manager/evidence/oss/oss-merge-1.md",
+      "sha256": "07d78196632c183ffb3b19772cc910a4f12b4df08aff3fb5a4af0f1f7eab8c12"
+    },
+    {
+      "source_path": "docs/evidence/oss/oss-security-baseline-1.md",
+      "target_path": "docs/legacy-life-manager/evidence/oss/oss-security-baseline-1.md",
+      "sha256": "d60421556f89b3000e822a1c148aa0fe1d7314d4635fced5cc6a56857ff5f1dc"
+    },
+    {
+      "source_path": "docs/evidence/repository/2026-07-29-life-manager-v0-retirement.md",
+      "target_path": "docs/legacy-life-manager/evidence/repository/2026-07-29-life-manager-v0-retirement.md",
+      "sha256": "9eb4f90617a5847ab8f7d50e44026c5351c597876b41269f45fbda97206beffa"
+    },
+    {
+      "source_path": "docs/evidence/repository/2026-07-29-x402-source-consolidation.md",
+      "target_path": "docs/legacy-life-manager/evidence/repository/2026-07-29-x402-source-consolidation.md",
+      "sha256": "1685095e4c22890d827261bed898532322262f8ab310016be884d2148b48795c"
+    }
+  ]
+}

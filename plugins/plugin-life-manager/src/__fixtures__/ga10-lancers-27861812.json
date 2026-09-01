@@ -1,0 +1,40 @@
+{
+  "note": "Recorded GA-10 observations for Lancers proposal 27861812. The proposal copy and the account-bearing URLs are omitted: the effect kernel decides from the readback state alone.",
+  "atom": "ELZ-L03",
+  "platform": "lancers",
+  "opportunity_external_id": "5593059",
+  "application_external_id": "27861812",
+  "job": {
+    "capability": "marketplace.application",
+    "effect_class": "publish",
+    "effect_key": "marketplace-application:v1:7314f1edb71008e78bbc65b432e505af57f429bda39d1389ae7c52050c90c53a",
+    "input_refs": {
+      "goal_ref": "intent-entry://dais-local/ga10-lancers-5593059",
+      "capability_ref": "provider-capability://lancers/marketplace.application",
+      "opportunity_ref": "marketplace-opportunity://lancers/5593059",
+      "intent_ref": "application-intent://sha256/e66c509e2fe5dcd469dff89146928a365dad3777a128b98604b7e971fb77cab7",
+      "authorization_ref": "authorization-receipt://sha256/987a6861dfe95fe6a176b4761fd18a81c18de183606226285312a6d6c20905b8"
+    }
+  },
+  "pre_effect": {
+    "official_history_state": "absent",
+    "verified_count_before": 32
+  },
+  "post_effect": {
+    "state": "present",
+    "verified_count": 33
+  },
+  "receipt": {
+    "status": "verified",
+    "content_sha256": "06bf3fa22a5c66bcf0898ad80a95c8bb830f6f0351a670dfe6f719073e408000",
+    "idempotency_key": "lancers:application_receipt:27861812:v1",
+    "observed_at": "2026-08-28T13:30:46Z"
+  },
+  "terminal_state": {
+    "replayed": true,
+    "effect_started": false,
+    "execute_once_count": 0,
+    "ledger_inserted": false,
+    "verified_count_after_replay": 33
+  }
+}
