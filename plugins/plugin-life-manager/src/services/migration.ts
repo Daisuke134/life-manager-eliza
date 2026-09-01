@@ -6,6 +6,7 @@ export const LIFE_MANAGER_DOMAIN_TABLES = [
   "goals",
   "plan_graphs",
   "work_items",
+  "decision_receipts",
   "effect_intents",
   "outcome_receipts",
   "economic_receipts",
@@ -38,7 +39,10 @@ export async function migrateLifeManagerDomain(exec: SqlExecutor): Promise<{
      ) AS done`,
   );
   if (rows[0]?.done === true || rows[0]?.done === "true") {
-    return { outcome: "already-migrated", tables: [...LIFE_MANAGER_DOMAIN_TABLES] };
+    return {
+      outcome: "already-migrated",
+      tables: [...LIFE_MANAGER_DOMAIN_TABLES],
+    };
   }
 
   await exec(
@@ -50,7 +54,9 @@ export async function migrateLifeManagerDomain(exec: SqlExecutor): Promise<{
      $$`,
   );
   for (const table of RECEIPT_TABLES) {
-    await exec(`DROP TRIGGER IF EXISTS ${table}_immutable ON ${SCHEMA}.${table}`);
+    await exec(
+      `DROP TRIGGER IF EXISTS ${table}_immutable ON ${SCHEMA}.${table}`,
+    );
     await exec(
       `CREATE TRIGGER ${table}_immutable
        BEFORE UPDATE OR DELETE ON ${SCHEMA}.${table}
@@ -81,7 +87,9 @@ export class LifeManagerMigrationService extends Service {
   override capabilityDescription =
     "Installs one-shot, non-destructive Life Manager receipt immutability guards.";
 
-  static async start(runtime: IAgentRuntime): Promise<LifeManagerMigrationService> {
+  static async start(
+    runtime: IAgentRuntime,
+  ): Promise<LifeManagerMigrationService> {
     const service = new LifeManagerMigrationService(runtime);
     const db = runtime.db as RuntimeDb | undefined;
     if (!db || typeof db.execute !== "function") {

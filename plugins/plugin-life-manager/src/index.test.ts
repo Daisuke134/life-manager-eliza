@@ -4,6 +4,7 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   economicReceiptsTable,
+  decisionReceiptsTable,
   effectIntentsTable,
   goalsTable,
   lifeManagerDbSchema,
@@ -31,17 +32,20 @@ import {
 } from "./index";
 
 describe("lifeManagerPlugin", () => {
-  it("registers the six tenant-scoped Life Manager domain tables", () => {
+  it("registers the tenant-scoped Life Manager domain tables", () => {
     const tables = [
       ["goals", goalsTable],
       ["plan_graphs", planGraphsTable],
       ["work_items", workItemsTable],
+      ["decision_receipts", decisionReceiptsTable],
       ["effect_intents", effectIntentsTable],
       ["outcome_receipts", outcomeReceiptsTable],
       ["economic_receipts", economicReceiptsTable],
     ] as const;
 
-    expect(Object.values(lifeManagerDbSchema)).toEqual(tables.map(([, table]) => table));
+    expect(Object.values(lifeManagerDbSchema)).toEqual(
+      tables.map(([, table]) => table),
+    );
     for (const [name, table] of tables) {
       const config = getTableConfig(table);
       expect(config.schema).toBe("life_manager");
@@ -58,13 +62,19 @@ describe("lifeManagerPlugin", () => {
       leaseExpiresAt: expect.anything(),
     });
     expect(lifeManagerPlugin.schema).toBe(lifeManagerDbSchema);
-    expect(getTableConfig(effectIntentsTable).uniqueConstraints.map(({ name }) => name)).toContain(
-      "lm_effect_intents_scope_effect_key_unique",
-    );
-    expect(getTableConfig(outcomeReceiptsTable).uniqueConstraints.map(({ name }) => name)).toContain(
-      "lm_outcome_receipts_scope_attempt_unique",
-    );
-    expect(getTableConfig(economicReceiptsTable).checks.map(({ name }) => name)).toEqual(
+    expect(
+      getTableConfig(effectIntentsTable).uniqueConstraints.map(
+        ({ name }) => name,
+      ),
+    ).toContain("lm_effect_intents_scope_effect_key_unique");
+    expect(
+      getTableConfig(outcomeReceiptsTable).uniqueConstraints.map(
+        ({ name }) => name,
+      ),
+    ).toContain("lm_outcome_receipts_scope_attempt_unique");
+    expect(
+      getTableConfig(economicReceiptsTable).checks.map(({ name }) => name),
+    ).toEqual(
       expect.arrayContaining([
         "lm_economic_receipts_amount_minor",
         "lm_economic_receipts_amount_atomic",
@@ -111,15 +121,34 @@ describe("lifeManagerPlugin", () => {
     await runtime.registerPlugin(lifeManagerPlugin);
     await runtime.registerPlugin(lifeManagerPlugin);
 
-    expect(runtime.plugins.filter((plugin) => plugin.name === lifeManagerPlugin.name)).toHaveLength(1);
-    expect(runtime.actions.filter((action) => action.name === lifeManagerHealthAction.name)).toHaveLength(1);
-    expect(runtime.providers.filter((provider) => provider.name === lifeManagerHealthProvider.name)).toHaveLength(1);
-    expect(runtime.getRegisteredServiceTypes()).toContain(LIFE_MANAGER_SERVICE_TYPE);
+    expect(
+      runtime.plugins.filter(
+        (plugin) => plugin.name === lifeManagerPlugin.name,
+      ),
+    ).toHaveLength(1);
+    expect(
+      runtime.actions.filter(
+        (action) => action.name === lifeManagerHealthAction.name,
+      ),
+    ).toHaveLength(1);
+    expect(
+      runtime.providers.filter(
+        (provider) => provider.name === lifeManagerHealthProvider.name,
+      ),
+    ).toHaveLength(1);
+    expect(runtime.getRegisteredServiceTypes()).toContain(
+      LIFE_MANAGER_SERVICE_TYPE,
+    );
 
     const appPackage = JSON.parse(
-      readFileSync(new URL("../../../packages/app/package.json", import.meta.url), "utf8"),
+      readFileSync(
+        new URL("../../../packages/app/package.json", import.meta.url),
+        "utf8",
+      ),
     );
-    expect(appPackage.dependencies["@elizaos/plugin-life-manager"]).toBe("workspace:*");
+    expect(appPackage.dependencies["@elizaos/plugin-life-manager"]).toBe(
+      "workspace:*",
+    );
     expect(appPackage.elizaos.app.defaults["life-manager"]).toEqual({
       enabled: true,
       requiredForReady: true,
