@@ -327,7 +327,13 @@ export async function callModelWithValidation(
 				provider?: string,
 			) => Promise<unknown>
 		)(String(options.modelType), options.params, options.provider)) as unknown;
-		lastRaw = typeof result === "string" ? result : String(result ?? "");
+		lastRaw =
+			typeof result === "string"
+				? result
+				: result && typeof result === "object" && "text" in result &&
+						 typeof result.text === "string"
+					? result.text
+					: String(result ?? "");
 
 		// Local / opted-out path: parse best-effort but don't reroll.
 		// We still try to surface a parsed object to the caller for symmetry,
