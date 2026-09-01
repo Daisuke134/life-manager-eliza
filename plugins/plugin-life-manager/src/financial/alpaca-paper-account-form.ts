@@ -1,14 +1,14 @@
 import type { Action, ActionResult, IAgentRuntime } from "@elizaos/core";
 
 interface Parameters {
-  readonly field?: "nickname" | "funds";
+  readonly field?: "nickname" | "funds" | "submit";
 }
 
 interface BrowserServiceShape {
   execute(command: {
-    subaction: "realistic-fill";
+    subaction: "realistic-fill" | "realistic-click";
     selector: string;
-    value: string;
+    value?: string;
   }): Promise<unknown>;
 }
 
@@ -27,11 +27,22 @@ export async function fillAlpacaPaperAccountForm(
   runtime: IAgentRuntime,
   field: Parameters["field"],
 ): Promise<ActionResult> {
+  const browser = runtime.getService("browser") as unknown as BrowserServiceShape | null;
+  if (!browser) return { success: false, text: "BrowserService is unavailable." };
+  if (field === "submit") {
+    await browser.execute({
+      subaction: "realistic-click",
+      selector: "[role=dialog] .flex.gap-4 > button:nth-of-type(2)",
+    });
+    return {
+      success: true,
+      text: "Submitted the Alpaca New Paper Account form once.",
+      data: { field, submitted: true },
+    };
+  }
   if (!field || !(field in FIELDS)) {
     return { success: false, text: "Paper account form field is invalid." };
   }
-  const browser = runtime.getService("browser") as unknown as BrowserServiceShape | null;
-  if (!browser) return { success: false, text: "BrowserService is unavailable." };
   await browser.execute({ subaction: "realistic-fill", ...FIELDS[field] });
   return {
     success: true,
@@ -42,13 +53,17 @@ export async function fillAlpacaPaperAccountForm(
 
 export const alpacaPaperAccountFormAction: Action = {
   name: "ALPACA_PAPER_ACCOUNT_FORM",
-  similes: ["FILL_ALPACA_PAPER_NICKNAME", "FILL_ALPACA_PAPER_FUNDS"],
+  similes: [
+    "FILL_ALPACA_PAPER_NICKNAME",
+    "FILL_ALPACA_PAPER_FUNDS",
+    "SUBMIT_ALPACA_PAPER_ACCOUNT",
+  ],
   description:
-    "Fill one field in the open Alpaca New Paper Account form with the fixed Life Manager bootstrap value.",
-  descriptionCompressed: "Fill Alpaca paper-account nickname or funds.",
+    "Fill a fixed field or submit the open Alpaca New Paper Account form once.",
+  descriptionCompressed: "Fill or submit Alpaca paper-account form.",
   contexts: ["finance", "browser", "automation"],
   routingHint:
-    "fill nickname or $100,000 funds in the open Alpaca New Paper Account dialog -> ALPACA_PAPER_ACCOUNT_FORM",
+    "fill nickname or $100,000 funds, or submit the open Alpaca New Paper Account dialog -> ALPACA_PAPER_ACCOUNT_FORM",
   roleGate: { minRole: "OWNER" },
   validate: async (runtime) => runtime.getService("browser") !== null,
   handler: async (runtime, _message, _state, options) => {
@@ -61,9 +76,9 @@ export const alpacaPaperAccountFormAction: Action = {
   parameters: [
     {
       name: "field",
-      description: "The fixed bootstrap field to fill.",
+      description: "The fixed bootstrap field to fill, or submit once.",
       required: true,
-      schema: { type: "string", enum: ["nickname", "funds"] },
+      schema: { type: "string", enum: ["nickname", "funds", "submit"] },
     },
   ],
 };
