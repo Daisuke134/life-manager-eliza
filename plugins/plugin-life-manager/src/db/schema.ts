@@ -119,6 +119,45 @@ export const workItemsTable = lifeManagerSchema.table("work_items", {
 export type WorkItemRow = typeof workItemsTable.$inferSelect;
 export type WorkItemInsert = typeof workItemsTable.$inferInsert;
 
+export const decisionReceiptsTable = lifeManagerSchema.table("decision_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  agentId: uuid("agent_id").notNull(),
+  entityId: uuid("entity_id").notNull(),
+  workItemId: uuid("work_item_id").notNull(),
+  decision: jsonb("decision").notNull(),
+  modelAttempts: integer("model_attempts").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .default(sql`now()`)
+    .notNull(),
+}, (table) => ({
+  scopeIdUnique: unique("lm_decision_receipts_scope_id_unique").on(
+    table.agentId,
+    table.entityId,
+    table.id,
+  ),
+  scopeWorkItemUnique: unique("lm_decision_receipts_scope_work_item_unique").on(
+    table.agentId,
+    table.entityId,
+    table.workItemId,
+  ),
+  scopeWorkItemFk: foreignKey({
+    name: "lm_decision_receipts_scope_work_item_fk",
+    columns: [table.agentId, table.entityId, table.workItemId],
+    foreignColumns: [workItemsTable.agentId, workItemsTable.entityId, workItemsTable.id],
+  }),
+  decisionObject: check(
+    "lm_decision_receipts_decision_object",
+    sql`jsonb_typeof(${table.decision}) = 'object' AND octet_length(${table.decision}::text) <= 16384`,
+  ),
+  attemptsPositive: check(
+    "lm_decision_receipts_attempts_positive",
+    sql`${table.modelAttempts} > 0`,
+  ),
+}));
+
+export type DecisionReceiptRow = typeof decisionReceiptsTable.$inferSelect;
+export type DecisionReceiptInsert = typeof decisionReceiptsTable.$inferInsert;
+
 export const effectIntentsTable = lifeManagerSchema.table("effect_intents", {
   id: uuid("id").primaryKey().defaultRandom(),
   agentId: uuid("agent_id").notNull(),
@@ -278,6 +317,7 @@ export const lifeManagerDbSchema = {
   goalsTable,
   planGraphsTable,
   workItemsTable,
+  decisionReceiptsTable,
   effectIntentsTable,
   outcomeReceiptsTable,
   economicReceiptsTable,
