@@ -9,7 +9,7 @@ import {
 } from "@elizaos/plugin-scheduling";
 import { runAlpacaCanaryPass } from "./alpaca-canary-pass.js";
 
-export const ALPACA_LOOP_CHANNEL = "life-manager:alpaca-paper-loop";
+export const ALPACA_LOOP_CHANNEL = "life_manager_alpaca_paper_loop";
 export const ALPACA_LOOP_IDEMPOTENCY_KEY = "life-manager:alpaca-paper-loop:v1";
 
 const installed = new WeakMap<
