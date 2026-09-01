@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, lt, or } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { stringToUuid, type IAgentRuntime } from "@elizaos/core";
 import {
@@ -11,7 +11,7 @@ import {
 import { persistGoalWorkItem } from "../goal-work-item.js";
 import { decideAndPersistAlpacaTrade } from "./alpaca-decision.js";
 import { createLocalAlpacaCliProvider } from "./alpaca-local-adapter.js";
-import { runAlpacaPaperCanary, sealAlpacaPaperCanary } from "./alpaca-paper-canary.js";
+import { reconcileAlpacaPaperCanaryReadback, runAlpacaPaperCanary, sealAlpacaPaperCanary } from "./alpaca-paper-canary.js";
 import { evaluateAlpacaRisk } from "./alpaca-risk-gate.js";
 
 export interface AlpacaCanaryCandidateInput {
@@ -92,45 +92,90 @@ async function ensureWorkItem(runtime: IAgentRuntime, db: Database, runRef: stri
 
 type Scope = Awaited<ReturnType<typeof ensureWorkItem>>;
 type CanaryRequest = Parameters<typeof runAlpacaPaperCanary>[0];
+type StoredIntent = {
+  readonly id: string;
+  readonly status: string;
+  readonly effectKey: string;
+  readonly inputRefs: unknown;
+};
+
+async function blockReconciliation(db: Database, intentId: string) {
+  await db.update(effectIntentsTable).set({
+    status: "reconciliation_blocked",
+    leaseOwner: null,
+    leaseExpiresAt: null,
+  }).where(eq(effectIntentsTable.id, intentId));
+}
 
 async function executeStoredIntent(
   db: Database,
-  scope: Scope,
-  stored: { canaryRequest?: unknown; expiresAt?: unknown },
+  storedIntent: StoredIntent,
   provider: ReturnType<typeof createLocalAlpacaCliProvider>,
 ) {
+  const stored = storedIntent.inputRefs as { canaryRequest?: unknown; expiresAt?: unknown };
   if (!stored.canaryRequest || typeof stored.expiresAt !== "string")
     throw new Error("Alpaca canary stored intent is incomplete");
   const canaryRequest = stored.canaryRequest as CanaryRequest;
   const sealed = sealAlpacaPaperCanary(canaryRequest);
-  if (await provider.findOrderByClientId(sealed.clientOrderId))
-    return runAlpacaPaperCanary(canaryRequest, provider);
+  try {
+    const order = await provider.findOrderByClientId(sealed.clientOrderId);
+    if (order) {
+      const result = reconcileAlpacaPaperCanaryReadback(canaryRequest, order);
+      await db.update(effectIntentsTable).set({
+        status: "applied",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+      }).where(eq(effectIntentsTable.id, storedIntent.id));
+      return result;
+    }
+  } catch {
+    await blockReconciliation(db, storedIntent.id);
+    throw new Error("Alpaca canary broker state is unknown; reconciliation breaker is open");
+  }
+  if (storedIntent.status !== "planned") {
+    await blockReconciliation(db, storedIntent.id);
+    throw new Error("Alpaca canary broker order is absent after effect start; reconciliation breaker is open");
+  }
   const now = new Date();
+  if (now.getTime() > Date.parse(stored.expiresAt)) {
+    await blockReconciliation(db, storedIntent.id);
+    throw new Error("Alpaca canary sealed plan expired before effect; reconciliation breaker is open");
+  }
   const leaseOwner = randomUUID();
   const claimed = await db.update(effectIntentsTable).set({
     status: "running",
     leaseOwner,
     leaseExpiresAt: new Date(now.getTime() + 30_000),
   }).where(and(
-    eq(effectIntentsTable.agentId, scope.agentId),
-    eq(effectIntentsTable.entityId, scope.entityId),
-    eq(effectIntentsTable.workItemId, scope.workItemId),
-    or(
-      eq(effectIntentsTable.status, "planned"),
-      and(eq(effectIntentsTable.status, "running"), lt(effectIntentsTable.leaseExpiresAt, now)),
-    ),
+    eq(effectIntentsTable.id, storedIntent.id),
+    eq(effectIntentsTable.status, "planned"),
   )).returning({ id: effectIntentsTable.id });
   if (claimed.length !== 1) throw new Error("Alpaca canary effect is already claimed");
-  if (Date.now() > Date.parse(stored.expiresAt)) {
-    await db.update(effectIntentsTable).set({ status: "expired", leaseOwner: null, leaseExpiresAt: null }).where(eq(effectIntentsTable.id, claimed[0]!.id));
-    throw new Error("Alpaca canary sealed plan expired before effect");
+  let result;
+  try {
+    result = await runAlpacaPaperCanary(canaryRequest, provider);
+  } catch {
+    await blockReconciliation(db, storedIntent.id);
+    throw new Error("Alpaca canary effect acknowledgement is unknown; reconciliation breaker is open");
   }
-  const result = await runAlpacaPaperCanary(canaryRequest, provider);
-  await db.update(effectIntentsTable).set({ status: "applied", leaseOwner: null, leaseExpiresAt: null }).where(and(
-    eq(effectIntentsTable.id, claimed[0]!.id),
-    eq(effectIntentsTable.leaseOwner, leaseOwner),
-  ));
+  await db.update(effectIntentsTable).set({
+    status: "applied",
+    leaseOwner: null,
+    leaseExpiresAt: null,
+  }).where(eq(effectIntentsTable.id, claimed[0]!.id));
   return result;
+}
+
+async function persistOutcome(db: Database, scope: Scope, intent: StoredIntent, result: Awaited<ReturnType<typeof runAlpacaPaperCanary>>) {
+  await db.insert(outcomeReceiptsTable).values({
+    agentId: scope.agentId,
+    entityId: scope.entityId,
+    effectIntentId: intent.id,
+    attempt: 0,
+    outcome: result.receipt.outcome,
+    effectKey: intent.effectKey,
+    receipt: result.receipt,
+  }).onConflictDoNothing();
 }
 
 export async function runAlpacaCanaryPass(
@@ -148,14 +193,19 @@ export async function runAlpacaCanaryPass(
   const fingerprint = requestFingerprint(request.candidates);
   const scope = await ensureWorkItem(runtime, db, request.runRef, fingerprint, now);
   const provider = createLocalAlpacaCliProvider();
-  const existingIntent = (await db.select({ inputRefs: effectIntentsTable.inputRefs }).from(effectIntentsTable).where(and(
+  const existingIntent = (await db.select({
+    id: effectIntentsTable.id,
+    status: effectIntentsTable.status,
+    effectKey: effectIntentsTable.effectKey,
+    inputRefs: effectIntentsTable.inputRefs,
+  }).from(effectIntentsTable).where(and(
     eq(effectIntentsTable.agentId, scope.agentId),
     eq(effectIntentsTable.entityId, scope.entityId),
     eq(effectIntentsTable.workItemId, scope.workItemId),
   )).limit(1))[0];
   if (existingIntent) {
-    const stored = existingIntent.inputRefs as { canaryRequest?: unknown; expiresAt?: unknown };
-    const result = await executeStoredIntent(db, scope, stored, provider);
+    const result = await executeStoredIntent(db, existingIntent, provider);
+    await persistOutcome(db, scope, existingIntent, result);
     return Object.freeze({ status: "ORDER_VERIFIED", result });
   }
   const observedAccount = await provider.observe("SPY");
@@ -240,25 +290,18 @@ export async function runAlpacaCanaryPass(
     inputRefs: { ...intent.inputRefs, canaryRequest, expiresAt: new Date(Date.now() + 30_000).toISOString() },
     status: "planned",
   }).onConflictDoNothing();
-  const storedIntent = (await db.select({ inputRefs: effectIntentsTable.inputRefs }).from(effectIntentsTable).where(and(
+  const storedIntent = (await db.select({
+    id: effectIntentsTable.id,
+    status: effectIntentsTable.status,
+    effectKey: effectIntentsTable.effectKey,
+    inputRefs: effectIntentsTable.inputRefs,
+  }).from(effectIntentsTable).where(and(
     eq(effectIntentsTable.agentId, scope.agentId),
     eq(effectIntentsTable.entityId, scope.entityId),
     eq(effectIntentsTable.workItemId, scope.workItemId),
   )).limit(1))[0];
   if (!storedIntent) throw new Error("Alpaca canary effect intent persistence failed");
-  const result = await executeStoredIntent(db, scope, storedIntent.inputRefs as { canaryRequest?: unknown; expiresAt?: unknown }, provider);
-  await db.insert(outcomeReceiptsTable).values({
-    agentId: scope.agentId,
-    entityId: scope.entityId,
-    effectIntentId: (await db.select({ id: effectIntentsTable.id }).from(effectIntentsTable).where(and(
-      eq(effectIntentsTable.agentId, scope.agentId),
-      eq(effectIntentsTable.entityId, scope.entityId),
-      eq(effectIntentsTable.effectKey, intent.effectKey),
-    )).limit(1))[0]!.id,
-    attempt: 0,
-    outcome: result.receipt.outcome,
-    effectKey: intent.effectKey,
-    receipt: result.receipt,
-  }).onConflictDoNothing();
+  const result = await executeStoredIntent(db, storedIntent, provider);
+  await persistOutcome(db, scope, storedIntent, result);
   return Object.freeze({ status: "ORDER_VERIFIED", decision, risk, result });
 }

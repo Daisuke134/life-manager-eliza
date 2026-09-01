@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { AppliedEffectReceipt, CommittedEffectReceipt } from "@elizaos/core";
 import { runEffectReceiptKernel, type EffectReceiptKernelResult } from "../effect-receipt-kernel.js";
 import type { AlpacaCliProvider, AlpacaDefinedRiskOrderRequest, AlpacaPaperOrderReadback } from "./alpaca-local-adapter.js";
 import type { AlpacaRiskGateResult } from "./alpaca-risk-gate.js";
@@ -41,19 +42,20 @@ export function sealAlpacaPaperCanary(request: AlpacaPaperCanaryRequest) {
   });
 }
 
-function receipt(order: AlpacaPaperOrderReadback, effectKey: string, replayed: boolean) {
+function receipt(order: AlpacaPaperOrderReadback, effectKey: string, replayed: true): CommittedEffectReceipt;
+function receipt(order: AlpacaPaperOrderReadback, effectKey: string, replayed: false): AppliedEffectReceipt;
+function receipt(order: AlpacaPaperOrderReadback, effectKey: string, replayed: boolean): CommittedEffectReceipt | AppliedEffectReceipt {
   if (!acceptedStatuses.has(order.status)) throw new Error("Alpaca paper order was not accepted");
   const shared = {
     receiptId: order.id,
     operation: "alpaca.paper.options.order.submit",
     resource: { kind: "alpaca.paper.order", id: order.clientOrderId },
     artifacts: [],
-    idempotency: { key: effectKey, replayed },
     observedAt: order.submittedAt,
   };
   return replayed
-    ? { ...shared, outcome: "noop", reason: "Official Alpaca CLI readback already contains the order" }
-    : { ...shared, outcome: "applied", commit: { kind: "provider_accepted", id: order.id, committedAt: order.submittedAt } };
+    ? { ...shared, idempotency: { key: effectKey, replayed: true }, outcome: "noop", reason: "Official Alpaca CLI readback already contains the order" }
+    : { ...shared, idempotency: { key: effectKey, replayed: false }, outcome: "applied", commit: { kind: "provider_accepted", id: order.id, committedAt: order.submittedAt } };
 }
 
 export async function runAlpacaPaperCanary(
@@ -74,7 +76,23 @@ export async function runAlpacaPaperCanary(
         return order ? { state: "present" as const, receipt: order } : { state: "absent" as const };
       },
       executeOnce: () => provider.submitDefinedRiskOrder(intent.order),
-      verifyReceipt: (raw, _effect, replayed) => receipt(raw as AlpacaPaperOrderReadback, intent.effectKey, replayed),
+      verifyReceipt: (raw, _effect, replayed) => replayed
+        ? receipt(raw as AlpacaPaperOrderReadback, intent.effectKey, true)
+        : receipt(raw as AlpacaPaperOrderReadback, intent.effectKey, false),
     },
   );
+}
+
+export function reconcileAlpacaPaperCanaryReadback(
+  request: AlpacaPaperCanaryRequest,
+  order: AlpacaPaperOrderReadback,
+): EffectReceiptKernelResult {
+  const intent = sealAlpacaPaperCanary(request);
+  if (order.clientOrderId !== intent.clientOrderId)
+    throw new Error("Alpaca paper order readback does not match the sealed intent");
+  return {
+    effect_started: false,
+    replayed: true,
+    receipt: receipt(order, intent.effectKey, true),
+  };
 }
