@@ -52,6 +52,12 @@ export {
   type AlpacaMarketObservation,
   type AlpacaPaperOrderReceipt,
 } from "./financial/alpaca-local-adapter.js";
+export {
+  ALPACA_RISK_POLICY,
+  evaluateAlpacaRisk,
+  type AlpacaRiskGateInput,
+  type AlpacaRiskGateResult,
+} from "./financial/alpaca-risk-gate.js";
 import {
   type GoalReflection,
   type GoalReflectionDatabase,
