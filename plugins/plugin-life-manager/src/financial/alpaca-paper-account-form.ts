@@ -1,7 +1,12 @@
 import type { Action, ActionResult, IAgentRuntime } from "@elizaos/core";
 
 interface Parameters {
-  readonly field?: "nickname" | "funds" | "submit";
+  readonly field?:
+    | "open_switcher"
+    | "open_form"
+    | "nickname"
+    | "funds"
+    | "submit";
 }
 
 interface BrowserServiceShape {
@@ -29,6 +34,20 @@ export async function fillAlpacaPaperAccountForm(
 ): Promise<ActionResult> {
   const browser = runtime.getService("browser") as unknown as BrowserServiceShape | null;
   if (!browser) return { success: false, text: "BrowserService is unavailable." };
+  if (field === "open_switcher" || field === "open_form") {
+    await browser.execute({
+      subaction: "realistic-click",
+      selector:
+        field === "open_switcher"
+          ? 'button[data-testid="account-switcher-button"]'
+          : 'dialog[data-testid="account-switcher-dropdown"] section:nth-of-type(3) > button:nth-of-type(1)',
+    });
+    return {
+      success: true,
+      text: `Opened the Alpaca paper account ${field === "open_form" ? "form" : "switcher"}.`,
+      data: { field, opened: true },
+    };
+  }
   if (field === "submit") {
     await browser.execute({
       subaction: "realistic-click",
@@ -57,13 +76,14 @@ export const alpacaPaperAccountFormAction: Action = {
     "FILL_ALPACA_PAPER_NICKNAME",
     "FILL_ALPACA_PAPER_FUNDS",
     "SUBMIT_ALPACA_PAPER_ACCOUNT",
+    "OPEN_ALPACA_PAPER_ACCOUNT_FORM",
   ],
   description:
-    "Fill a fixed field or submit the open Alpaca New Paper Account form once.",
+    "Open, fill, or submit the Alpaca New Paper Account form once.",
   descriptionCompressed: "Fill or submit Alpaca paper-account form.",
   contexts: ["finance", "browser", "automation"],
   routingHint:
-    "fill nickname or $100,000 funds, or submit the open Alpaca New Paper Account dialog -> ALPACA_PAPER_ACCOUNT_FORM",
+    "open, fill nickname or $100,000 funds, or submit the Alpaca New Paper Account dialog -> ALPACA_PAPER_ACCOUNT_FORM",
   roleGate: { minRole: "OWNER" },
   validate: async (runtime) => runtime.getService("browser") !== null,
   handler: async (runtime, _message, _state, options) => {
@@ -78,7 +98,10 @@ export const alpacaPaperAccountFormAction: Action = {
       name: "field",
       description: "The fixed bootstrap field to fill, or submit once.",
       required: true,
-      schema: { type: "string", enum: ["nickname", "funds", "submit"] },
+      schema: {
+        type: "string",
+        enum: ["open_switcher", "open_form", "nickname", "funds", "submit"],
+      },
     },
   ],
 };

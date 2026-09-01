@@ -9,12 +9,21 @@ export const alpacaPaperAccountRoutes: Route[] = [
     routeHandler: async (context): Promise<RouteHandlerResult> => {
       const body = context.body as { field?: unknown } | undefined;
       const field = body?.field;
-      if (!(["nickname", "funds", "submit"] as unknown[]).includes(field)) {
+      if (
+        !(
+          ["open_switcher", "open_form", "nickname", "funds", "submit"] as unknown[]
+        ).includes(field)
+      ) {
         return { status: 400, body: { error: "field is invalid" } };
       }
       const result = await fillAlpacaPaperAccountForm(
         context.runtime,
-        field as "nickname" | "funds" | "submit",
+        field as
+          | "open_switcher"
+          | "open_form"
+          | "nickname"
+          | "funds"
+          | "submit",
       );
       return { status: result.success ? 200 : 409, body: result };
     },
