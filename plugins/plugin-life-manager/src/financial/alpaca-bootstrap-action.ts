@@ -41,7 +41,7 @@ type BootstrapRun = (
 
 const NEXT_STEP: Record<AlpacaBootstrapNextAction, string> = {
   CREATE_PAPER_ACCOUNT:
-    "Use BROWSER to open https://app.alpaca.markets/signup, inspect the page, use ALPACA_BOOTSTRAP_SECRET_FILL for email/password, complete only non-KYC fields, submit, then call ALPACA_BOOTSTRAP again. Never use Google login or bypass CAPTCHA, KYC, or legal consent.",
+    "Use BROWSER to open https://app.alpaca.markets, sign in with the existing normal email/password and TOTP using the private Alpaca bootstrap fill tools, then use Alpaca's account selector to choose Open New Paper Account. Resume the already-open creation page after retries; never create a second account. Keep the default $100,000 balance. Capture the new paper api_key, api_secret, and account_id with ALPACA_BOOTSTRAP_PRIVATE_CAPTURE, then call ALPACA_BOOTSTRAP again. Never use Google login or bypass CAPTCHA, KYC, or legal consent.",
   VERIFY_EMAIL:
     "Call ALPACA_BOOTSTRAP_EMAIL_VERIFY, then call ALPACA_BOOTSTRAP again.",
   CONFIGURE_MFA:

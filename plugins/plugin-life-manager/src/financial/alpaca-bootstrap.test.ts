@@ -56,7 +56,10 @@ function dependencies(overrides: Record<string, unknown> = {}) {
 describe("Life Manager Alpaca bootstrap", () => {
   it("discovers and reuses existing refs, verifies once, and returns no private values", async () => {
     const { deps, counts } = dependencies();
-    const result = await runAlpacaBootstrap(checkpoint, deps);
+    const result = await runAlpacaBootstrap(
+      { phase: "API", credentialRefs: [] },
+      deps,
+    );
     expect(result.phase).toBe("READY");
     expect(result.facts).toMatchObject({
       paper: true,
@@ -71,6 +74,17 @@ describe("Life Manager Alpaca bootstrap", () => {
     expect(JSON.stringify(result)).not.toContain("never-public");
     expect(JSON.stringify(result)).not.toContain("secret");
     expect(result).not.toHaveProperty("accountId");
+  });
+
+  it("requires Life Manager account creation from a fresh checkpoint even when login refs already exist", async () => {
+    const { deps, counts } = dependencies();
+    const result = await runAlpacaBootstrap(checkpoint, deps);
+    expect(result).toMatchObject({
+      phase: "BOOTSTRAP_REQUIRED",
+      nextAction: "CREATE_PAPER_ACCOUNT",
+      nextCheckpoint: { phase: "SIGNUP" },
+    });
+    expect(counts()).toEqual({ verifyCalls: 0, signupCalls: 0 });
   });
 
   it("returns an explicit resumable signup checkpoint when refs are missing", async () => {
@@ -105,7 +119,10 @@ describe("Life Manager Alpaca bootstrap", () => {
       const { deps } = dependencies({
         runPinnedCliReadbacks: async () => readback(override),
       });
-      const result = await runAlpacaBootstrap(checkpoint, deps);
+      const result = await runAlpacaBootstrap(
+        { phase: "API", credentialRefs: [] },
+        deps,
+      );
       expect(result).toMatchObject({ phase: "BLOCKED", errorCode });
       expect(result).not.toHaveProperty("facts.cash", 99999);
     },

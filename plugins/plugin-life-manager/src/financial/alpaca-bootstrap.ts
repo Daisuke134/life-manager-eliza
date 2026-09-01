@@ -247,6 +247,19 @@ export async function runAlpacaBootstrap(
   ];
   const bound = required.length - missing.length;
 
+  // A fresh checkpoint must prove that Life Manager created this paper
+  // account. Existing credentials can authenticate the owner, but they are
+  // not creation evidence. Stay resumable until the newly-created account's
+  // private API material advances the checkpoint to API.
+  if (missing.length === 0 && ["START", "SIGNUP"].includes(current.phase)) {
+    return Object.freeze({
+      phase: "BOOTSTRAP_REQUIRED",
+      nextAction: "CREATE_PAPER_ACCOUNT",
+      nextCheckpoint: checkpoint("SIGNUP", boundRefs),
+      facts: facts(bound),
+    });
+  }
+
   if (missing.length > 0) {
     let step: AlpacaSignupStepResult = {
       status: "continue",
