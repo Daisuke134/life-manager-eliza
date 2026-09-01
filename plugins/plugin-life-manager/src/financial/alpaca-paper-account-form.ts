@@ -12,7 +12,7 @@ interface Parameters {
 
 interface BrowserServiceShape {
   execute(command: {
-    subaction: "realistic-type" | "realistic-click" | "realistic-press";
+    subaction: "click" | "realistic-type" | "realistic-click" | "realistic-press";
     selector: string;
     text?: string;
     key?: string;
@@ -63,9 +63,8 @@ export async function fillAlpacaPaperAccountForm(
   }
   if (field === "submit") {
     await browser.execute({
-      subaction: "realistic-press",
-      selector: 'input[name="name"]',
-      key: "Enter",
+      subaction: "click",
+      selector: "[role=dialog] .flex.gap-4 button:nth-of-type(2)",
     });
     return {
       success: true,

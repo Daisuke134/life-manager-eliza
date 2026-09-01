@@ -119,7 +119,10 @@ async function execute(
           ),
         ),
       };
-    } else if (["click", "realistic-click"].includes(command.subaction)) {
+    } else if (command.subaction === "click") {
+      if (!selector) throw new Error("CDP click requires selector");
+      await page.$eval(selector, (element) => (element as HTMLElement).click());
+    } else if (command.subaction === "realistic-click") {
       if (!selector) throw new Error("CDP click requires selector");
       await page.click(selector);
     } else if (["fill", "realistic-fill"].includes(command.subaction)) {
