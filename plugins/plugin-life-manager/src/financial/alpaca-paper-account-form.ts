@@ -40,7 +40,7 @@ export async function fillAlpacaPaperAccountForm(
       selector:
         field === "open_switcher"
           ? 'button[data-testid="account-switcher-button"]'
-          : 'dialog[data-testid="account-switcher-dropdown"] section:nth-of-type(3) > button:nth-of-type(1)',
+          : 'dialog[data-testid="account-switcher-dropdown"] section:nth-of-type(3) button:nth-of-type(1)',
     });
     return {
       success: true,
@@ -51,7 +51,7 @@ export async function fillAlpacaPaperAccountForm(
   if (field === "submit") {
     await browser.execute({
       subaction: "realistic-click",
-      selector: "[role=dialog] .flex.gap-4 > button:nth-of-type(2)",
+      selector: "[role=dialog] .flex.gap-4 button:nth-of-type(2)",
     });
     return {
       success: true,
