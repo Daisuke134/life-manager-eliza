@@ -2,6 +2,8 @@ import type { IAgentRuntime } from "@elizaos/core";
 import {
   registerDefaultTaskPack,
   registerScheduledTaskChannelDispatcher,
+  registerScheduledTaskRunnerBootHook,
+  seedRegisteredTaskPacks,
   type ScheduledTaskChannelDispatcherContribution,
   unregisterScheduledTaskChannelDispatcher,
 } from "@elizaos/plugin-scheduling";
@@ -59,6 +61,12 @@ export function registerAlpacaPaperLoop(runtime: IAgentRuntime): void {
           executionProfile: "bg-light-30s",
         },
       ],
+    });
+    registerScheduledTaskRunnerBootHook(runtime, async (service) => {
+      await seedRegisteredTaskPacks(
+        runtime,
+        service.getRunner({ agentId: runtime.agentId }),
+      );
     });
   } catch (error) {
     unregisterScheduledTaskChannelDispatcher(
