@@ -5,6 +5,7 @@ import {
   registerScheduledTaskRunnerBootHook,
   seedRegisteredTaskPacks,
   type ScheduledTaskChannelDispatcherContribution,
+  type ScheduledTaskRunnerHandle,
   unregisterScheduledTaskChannelDispatcher,
 } from "@elizaos/plugin-scheduling";
 import { closeAlpacaCanaryCampaign, rankAlpacaPaperCandidates, runAlpacaCanaryPass } from "./alpaca-canary-pass.js";
@@ -27,6 +28,37 @@ const reconciliationPass = {
     },
   ],
 };
+
+async function repairAlpacaTaskDispatch(
+  runner: ScheduledTaskRunnerHandle,
+): Promise<void> {
+  const task = (await runner.list()).find(
+    ({ idempotencyKey }) => idempotencyKey === ALPACA_LOOP_IDEMPOTENCY_KEY,
+  );
+  const lastDispatch = task?.metadata?.lastDispatchResult as
+    | { reason?: unknown; message?: unknown }
+    | undefined;
+  if (!task) return;
+  const hasLegacyExecutionProfile =
+    task.executionProfile === "bg-light-30s";
+  const hasDisconnectedDispatcher =
+    task.state.status === "scheduled" &&
+    lastDispatch?.reason === "disconnected" &&
+    typeof lastDispatch.message === "string" &&
+    lastDispatch.message.includes(ALPACA_LOOP_CHANNEL);
+  if (!hasLegacyExecutionProfile && !hasDisconnectedDispatcher) return;
+  const metadata = { ...(task.metadata ?? {}) };
+  delete metadata.connectorDegradation;
+  delete metadata.escalationCursor;
+  delete metadata.lastDispatchError;
+  delete metadata.lastDispatchResult;
+  delete metadata.pendingDispatch;
+  await runner.apply(task.taskId, "edit", {
+    metadata,
+    ...(hasLegacyExecutionProfile ? { executionProfile: undefined } : {}),
+  });
+  await runner.fireWithResult(task.taskId, { allowTerminalRefire: true });
+}
 
 export function registerAlpacaPaperLoop(runtime: IAgentRuntime): void {
   if (installed.has(runtime)) return;
@@ -60,15 +92,13 @@ export function registerAlpacaPaperLoop(runtime: IAgentRuntime): void {
           source: "plugin",
           createdBy: "@elizaos/plugin-life-manager",
           ownerVisible: false,
-          executionProfile: "bg-light-30s",
         },
       ],
     });
     registerScheduledTaskRunnerBootHook(runtime, async (service) => {
-      await seedRegisteredTaskPacks(
-        runtime,
-        service.getRunner({ agentId: runtime.agentId }),
-      );
+      const runner = service.getRunner({ agentId: runtime.agentId });
+      await seedRegisteredTaskPacks(runtime, runner);
+      await repairAlpacaTaskDispatch(runner);
     });
   } catch (error) {
     unregisterScheduledTaskChannelDispatcher(
