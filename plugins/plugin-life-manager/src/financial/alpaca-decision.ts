@@ -21,11 +21,13 @@ export interface AlpacaDecisionRequest {
   readonly objective: string;
   readonly observation: Readonly<Record<string, unknown>>;
   readonly evidenceRefs: readonly string[];
+  readonly candidateRefs: readonly string[];
   readonly signal?: AbortSignal;
 }
 
 export interface AlpacaTradingDecision {
   readonly status: "NO_TRADE" | "TRADE";
+  readonly candidateRef: string;
   readonly thesis: string;
   readonly structure: string;
   readonly maxLossUsd: number;
@@ -38,6 +40,7 @@ export interface AlpacaTradingDecision {
 type Database = NodePgDatabase<typeof lifeManagerDbSchema>;
 const fields = [
   "status",
+  "candidateRef",
   "thesis",
   "structure",
   "maxLossUsd",
@@ -57,6 +60,7 @@ function validText(value: unknown): value is string {
 function normalize(
   raw: unknown,
   offeredRefs: readonly string[],
+  candidateRefs: readonly string[],
   attempts: number,
 ): AlpacaTradingDecision {
   if (!raw || typeof raw !== "object" || Array.isArray(raw))
@@ -69,6 +73,10 @@ function normalize(
     throw new Error("Invalid Alpaca trading decision");
   if (
     (value.status !== "NO_TRADE" && value.status !== "TRADE") ||
+    typeof value.candidateRef !== "string" ||
+    (value.status === "NO_TRADE"
+      ? value.candidateRef !== "NO_TRADE"
+      : !candidateRefs.includes(value.candidateRef)) ||
     !validText(value.thesis) ||
     !validText(value.structure) ||
     !validText(value.invalidation) ||
@@ -88,6 +96,7 @@ function normalize(
     throw new Error("Invalid Alpaca trading decision");
   return Object.freeze({
     status: value.status,
+    candidateRef: value.candidateRef,
     thesis: value.thesis.trim(),
     structure: value.structure.trim(),
     maxLossUsd: value.maxLossUsd,
@@ -118,6 +127,7 @@ export async function decideAndPersistAlpacaTrade(
     return normalize(
       existing[0].decision,
       request.evidenceRefs,
+      request.candidateRefs,
       existing[0].modelAttempts,
     );
 
@@ -127,6 +137,10 @@ export async function decideAndPersistAlpacaTrade(
     required: [...fields],
     properties: {
       status: { type: "string" as const, enum: ["NO_TRADE", "TRADE"] },
+      candidateRef: {
+        type: "string" as const,
+        enum: ["NO_TRADE", ...request.candidateRefs],
+      },
       thesis: { type: "string" as const, maxLength: 2_000 },
       structure: { type: "string" as const, maxLength: 2_000 },
       maxLossUsd: { type: "number" as const, minimum: 0 },
@@ -161,6 +175,7 @@ export async function decideAndPersistAlpacaTrade(
     `Objective: ${request.objective}`,
     `Observation: ${JSON.stringify(request.observation)}`,
     `Allowed evidence references: ${JSON.stringify(request.evidenceRefs)}`,
+    `Allowed candidate references: ${JSON.stringify(request.candidateRefs)}. Use NO_TRADE only with candidateRef NO_TRADE.`,
   ].join("\n");
   const result = await callModelWithValidation(runtime, {
     modelType: ModelType.ACTION_PLANNER,
@@ -184,6 +199,7 @@ export async function decideAndPersistAlpacaTrade(
   const decision = normalize(
     envelope.params,
     request.evidenceRefs,
+    request.candidateRefs,
     result.attempts,
   );
   const { attempts, ...decisionPayload } = decision;
@@ -228,6 +244,11 @@ export async function decideAndPersistAlpacaTrade(
           .limit(1)
       )[0];
     if (!row) throw new Error("Alpaca decision persistence failed");
-    return normalize(row.decision, request.evidenceRefs, row.modelAttempts);
+    return normalize(
+      row.decision,
+      request.evidenceRefs,
+      request.candidateRefs,
+      row.modelAttempts,
+    );
   });
 }

@@ -4,7 +4,7 @@ import { evaluateAlpacaRisk, type AlpacaRiskGateInput } from "./alpaca-risk-gate
 const now = Date.parse("2026-09-01T18:00:00Z");
 const allowed: AlpacaRiskGateInput = {
   nowMs: now, regularSessionOpen: true, reconciliationHealthy: true,
-  decision: { status: "TRADE", thesis: "Defined edge", structure: "bull call debit spread", maxLossUsd: 400, invalidation: "Break", exitPlan: "Exit", evidenceRefs: ["cli://quote"], attempts: 1 },
+  decision: { status: "TRADE", candidateRef: "candidate://spread", thesis: "Defined edge", structure: "bull call debit spread", maxLossUsd: 400, invalidation: "Break", exitPlan: "Exit", evidenceRefs: ["cli://quote"], attempts: 1 },
   structure: "bull_call_debit_spread", quantity: 1, netDebitPerShare: 4,
   equityUsd: 100_000, cashUsd: 100_000, highWaterEquityUsd: 100_000,
   dailyPnlUsd: 0, openMaxLossUsd: 0, borrowedValueUsd: 0, optionsLevel: 3,

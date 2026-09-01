@@ -10,6 +10,7 @@ const request = {
   objective: "Grow paper capital without undefined loss.",
   observation: { paper: true, symbol: "SPY", equity: 100_000 },
   evidenceRefs: ["alpaca-cli://spy/latest-trade"],
+  candidateRefs: ["alpaca-option://spy/call-1"],
 } as const;
 
 function database(effectExists = false) {
@@ -50,6 +51,7 @@ function runtime() {
       action: "ALPACA_TRADING_DECISION",
       params: {
         status: "NO_TRADE",
+        candidateRef: "NO_TRADE",
         thesis: "The observation is insufficient for a bounded edge.",
         structure: "No position.",
         maxLossUsd: 0,
