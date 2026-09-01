@@ -157,10 +157,13 @@ interface AlpacaBootstrapService {
 
 export const alpacaBootstrapAction: Action = {
   name: "ALPACA_BOOTSTRAP",
+  similes: ["START_ALPACA_BOOTSTRAP", "CONTINUE_ALPACA_BOOTSTRAP"],
   description:
     "Advance or verify the resumable Life Manager-owned Alpaca paper-account bootstrap.",
   descriptionCompressed: "Advance Alpaca paper bootstrap.",
   contexts: ["finance", "automation"],
+  routingHint:
+    "start, continue, resume, verify, or read the current Alpaca paper-account bootstrap checkpoint -> ALPACA_BOOTSTRAP",
   roleGate: { minRole: "OWNER" },
   validate: async (runtime: IAgentRuntime) =>
     runtime.getService("LIFE_MANAGER") !== null,
