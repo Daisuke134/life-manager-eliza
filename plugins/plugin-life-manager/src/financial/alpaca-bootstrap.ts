@@ -288,7 +288,7 @@ export async function runAlpacaBootstrap(
       nextAction: step.nextAction,
       errorCode: "CREDENTIAL_REFS_MISSING",
       nextCheckpoint: checkpoint(step.phase, boundRefs),
-      facts: facts(bound),
+      facts: facts(boundRefs.filter((ref) => requiredSet.has(ref)).length),
     });
   }
 

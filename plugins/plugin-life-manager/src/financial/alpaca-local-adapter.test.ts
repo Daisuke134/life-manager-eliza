@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -143,6 +144,55 @@ describe("local Alpaca adapter", () => {
       expect(publicResult).not.toContain("SKTEST");
       expect(readFileSync(credentialsPath, "utf8")).toContain(
         "private-account-id",
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("seeds only normal-email signup material into the private SSOT", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "lm-alpaca-seed-"));
+    const credentialsPath = join(directory, "credentials.json");
+    const ownerProfilePath = join(directory, "profile.json");
+    writeFileSync(credentialsPath, '{"version":1,"credentials":[]}\n', {
+      mode: 0o600,
+    });
+    writeFileSync(
+      ownerProfilePath,
+      JSON.stringify({
+        candidate: { application_email: "owner@example.invalid" },
+      }),
+      { mode: 0o600 },
+    );
+    try {
+      const dependencies = createLocalAlpacaBootstrapDependencies({
+        credentialsPath,
+        ownerProfilePath,
+      });
+      const result = await runAlpacaBootstrap(
+        { phase: "START", credentialRefs: [] },
+        dependencies,
+      );
+      expect(result).toMatchObject({
+        phase: "BOOTSTRAP_REQUIRED",
+        nextAction: "CREATE_PAPER_ACCOUNT",
+        facts: { credentialRefsBound: 3 },
+      });
+      expect(result.nextCheckpoint.credentialRefs).toHaveLength(3);
+      const saved = JSON.parse(readFileSync(credentialsPath, "utf8"));
+      expect(saved.credentials).toHaveLength(1);
+      expect(saved.credentials[0]).toMatchObject({
+        service: "app.alpaca.markets",
+        email: "owner@example.invalid",
+        paper_endpoint: "https://paper-api.alpaca.markets/v2",
+        account_status: "bootstrap_pending",
+      });
+      expect(saved.credentials[0].password).toMatch(/^.{40,}aA1!$/);
+      expect(saved.credentials[0]).not.toHaveProperty("api_key");
+      expect(saved.credentials[0]).not.toHaveProperty("account_id");
+      expect(statSync(credentialsPath).mode & 0o777).toBe(0o600);
+      expect(JSON.stringify(result)).not.toContain(
+        saved.credentials[0].password,
       );
     } finally {
       rmSync(directory, { recursive: true, force: true });

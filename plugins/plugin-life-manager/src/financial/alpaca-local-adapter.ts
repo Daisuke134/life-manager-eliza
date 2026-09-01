@@ -4,7 +4,14 @@
  * boundary; account identifiers and recovery material never enter the handle.
  */
 import { execFile as nodeExecFile } from "node:child_process";
-import { lstatSync, readFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import {
+  lstatSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -40,6 +47,7 @@ export type AlpacaExecFile = (
 
 export interface AlpacaLocalAdapterOptions {
   readonly credentialsPath?: string;
+  readonly ownerProfilePath?: string;
   readonly cliPath?: string;
   readonly execFile?: AlpacaExecFile;
 }
@@ -91,7 +99,7 @@ const ACTIVITY_ARGS = [
 ] as const;
 
 type RequiredField = (typeof REQUIRED_FIELDS)[number];
-type PrivateHandle = Readonly<Record<RequiredField, string>>;
+type PrivateHandle = Readonly<Partial<Record<RequiredField, string>>>;
 
 export const ALPACA_REQUIRED_CREDENTIAL_REFS = REQUIRED_REFS;
 
@@ -150,14 +158,80 @@ function privateHandle(path: string): PrivateHandle | undefined {
   const record = matches[0];
   if (
     !record ||
-    !REQUIRED_FIELDS.every((field) => secretString(record[field])) ||
-    record.paper_endpoint !== PAPER_ENDPOINT
+    (record.paper_endpoint !== undefined &&
+      record.paper_endpoint !== PAPER_ENDPOINT)
   )
     return undefined;
   return Object.freeze(
     Object.fromEntries(
-      REQUIRED_FIELDS.map((field) => [field, record[field]]),
+      REQUIRED_FIELDS.flatMap((field) =>
+        secretString(record[field]) ? [[field, record[field]]] : [],
+      ),
     ) as PrivateHandle,
+  );
+}
+
+function ownerEmail(path: string): string {
+  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+  const candidate = isRecord(parsed) ? parsed.candidate : undefined;
+  const email = isRecord(candidate) ? candidate.application_email : undefined;
+  if (
+    typeof email !== "string" ||
+    email.length > 320 ||
+    !email.includes("@") ||
+    hasControl(email)
+  )
+    throw new Error("Owner profile email is unavailable");
+  return email;
+}
+
+function seedSignupRecord(
+  credentialsPath: string,
+  profilePath: string,
+): string[] {
+  const records = credentialRecords(credentialsPath);
+  if (!records) throw new Error("Credential SSOT is unavailable");
+  if (records.some((record) => record.service === "app.alpaca.markets")) {
+    return [];
+  }
+  const email = ownerEmail(profilePath);
+  const document = JSON.parse(readFileSync(credentialsPath, "utf8"));
+  const next = {
+    ...document,
+    credentials: [
+      ...records,
+      {
+        service: "app.alpaca.markets",
+        email,
+        username: email,
+        password: `${randomBytes(32).toString("base64url")}aA1!`,
+        paper_endpoint: PAPER_ENDPOINT,
+        account_status: "bootstrap_pending",
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  };
+  const temporary = `${credentialsPath}.tmp.${process.pid}.${randomBytes(8).toString("hex")}`;
+  try {
+    writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, {
+      mode: 0o600,
+      flag: "wx",
+    });
+    renameSync(temporary, credentialsPath);
+  } catch (error) {
+    // error-policy:J2 preserve the write failure after best-effort cleanup.
+    try {
+      unlinkSync(temporary);
+    } catch {
+      // error-policy:J6 cleanup-only failure cannot replace the write error.
+    }
+    throw error;
+  }
+  return REQUIRED_REFS.filter(
+    (ref) =>
+      ref.endsWith("/email") ||
+      ref.endsWith("/password") ||
+      ref.endsWith("/paper_endpoint"),
   );
 }
 
@@ -265,6 +339,9 @@ export function createLocalAlpacaBootstrapDependencies(
   const credentialsPath =
     options.credentialsPath ??
     join(homedir(), ".local", "share", "anicca", "credentials.json");
+  const ownerProfilePath =
+    options.ownerProfilePath ??
+    join(homedir(), ".config", "anicca", "job-search", "profile.json");
   const cliPath = options.cliPath ?? join(homedir(), ".local", "bin", "alpaca");
   const runner = options.execFile ?? defaultExecFile;
   return {
@@ -273,7 +350,7 @@ export function createLocalAlpacaBootstrapDependencies(
       const handle = privateHandle(credentialsPath);
       const missingRefs = refs.filter((ref) => {
         const index = REQUIRED_REFS.indexOf(ref);
-        return index < 0 || !handle;
+        return index < 0 || !handle?.[REQUIRED_FIELDS[index] as RequiredField];
       });
       return { missingRefs, privateHandle: handle };
     },
@@ -313,12 +390,18 @@ export function createLocalAlpacaBootstrapDependencies(
       return baseline(version, account, positions, orders, activities);
     },
     requestSignupStep: async (
-      _request: SignupRequest,
+      request: SignupRequest,
       _privateValue: unknown,
-    ): Promise<AlpacaSignupStepResult> => ({
-      status: "continue",
-      phase: "SIGNUP",
-      nextAction: "CREATE_PAPER_ACCOUNT",
-    }),
+    ): Promise<AlpacaSignupStepResult> => {
+      const boundCredentialRefs = request.credentialRefs.length
+        ? []
+        : seedSignupRecord(credentialsPath, ownerProfilePath);
+      return {
+        status: "continue",
+        phase: "SIGNUP",
+        nextAction: "CREATE_PAPER_ACCOUNT",
+        ...(boundCredentialRefs.length ? { boundCredentialRefs } : {}),
+      };
+    },
   };
 }
