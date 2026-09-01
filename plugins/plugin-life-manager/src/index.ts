@@ -39,6 +39,14 @@ import {
   type AlpacaLocalAdapterOptions,
   createLocalAlpacaBootstrapDependencies,
 } from "./financial/alpaca-local-adapter.js";
+
+export {
+  createLocalAlpacaCliProvider,
+  type AlpacaCliProvider,
+  type AlpacaDefinedRiskOrderRequest,
+  type AlpacaMarketObservation,
+  type AlpacaPaperOrderReceipt,
+} from "./financial/alpaca-local-adapter.js";
 import {
   type GoalReflection,
   type GoalReflectionDatabase,
