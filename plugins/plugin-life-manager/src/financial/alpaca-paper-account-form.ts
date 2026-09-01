@@ -5,6 +5,7 @@ interface Parameters {
     | "open_switcher"
     | "open_form"
     | "accept_cookies"
+    | "select_life_manager"
     | "nickname"
     | "funds"
     | "submit";
@@ -45,6 +46,18 @@ export async function fillAlpacaPaperAccountForm(
       success: true,
       text: "Accepted the Alpaca cookie notice.",
       data: { field, accepted: true },
+    };
+  }
+  if (field === "select_life_manager") {
+    await browser.execute({
+      subaction: "click",
+      selector:
+        'dialog[data-testid="account-switcher-dropdown"] section:nth-of-type(2) button:nth-of-type(2)',
+    });
+    return {
+      success: true,
+      text: "Selected the Life Manager paper account.",
+      data: { field, selected: true },
     };
   }
   if (field === "open_switcher" || field === "open_form") {
@@ -122,6 +135,7 @@ export const alpacaPaperAccountFormAction: Action = {
           "open_switcher",
           "open_form",
           "accept_cookies",
+          "select_life_manager",
           "nickname",
           "funds",
           "submit",

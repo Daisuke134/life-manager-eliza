@@ -15,6 +15,7 @@ export const alpacaPaperAccountRoutes: Route[] = [
             "open_switcher",
             "open_form",
             "accept_cookies",
+            "select_life_manager",
             "nickname",
             "funds",
             "submit",
@@ -29,6 +30,7 @@ export const alpacaPaperAccountRoutes: Route[] = [
           | "open_switcher"
           | "open_form"
           | "accept_cookies"
+          | "select_life_manager"
           | "nickname"
           | "funds"
           | "submit",
