@@ -171,7 +171,7 @@ export async function decideAndPersistAlpacaTrade(
     `Allowed candidate references: ${JSON.stringify(request.candidateRefs)}. Use NO_TRADE only with candidateRef NO_TRADE.`,
   ].join("\n");
   const result = await callModelWithValidation(runtime, {
-    modelType: ModelType.ACTION_PLANNER,
+    modelType: ModelType.TEXT_LARGE,
     params: {
       prompt,
       messages: [{ role: "user", content: prompt }],
