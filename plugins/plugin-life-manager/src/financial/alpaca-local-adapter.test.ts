@@ -120,7 +120,7 @@ describe("local Alpaca adapter", () => {
           "get",
           "--quiet",
           "--jq",
-          "{accountStatus:.status,cash:(.cash|tonumber),equity:(.equity|tonumber),optionsLevel:.options_trading_level}",
+          "{accountStatus:.status,cash:(.cash|tonumber),equity:(.equity|tonumber),lastEquity:(.last_equity|tonumber),optionsLevel:.options_trading_level}",
         ],
         ["position", "list", "--quiet", "--jq", "{count:length}"],
         [

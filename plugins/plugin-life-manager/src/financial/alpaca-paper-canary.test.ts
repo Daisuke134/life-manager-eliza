@@ -42,4 +42,18 @@ describe("Alpaca exactly-once paper canary", () => {
     expect(submit).toHaveBeenCalledTimes(1);
     expect(intent.clientOrderId).toMatch(/^lm-a08-[a-f0-9]{40}$/);
   });
+
+  it("fails closed for an unknown broker order status", async () => {
+    const intent = sealAlpacaPaperCanary(request);
+    const provider = {
+      findOrderByClientId: vi.fn(async () => ({
+        paper: true, id: "official-order-2", clientOrderId: intent.clientOrderId,
+        status: "suspended", submittedAt: "2026-09-01T18:55:00Z", filledQuantity: 0,
+      })),
+      submitDefinedRiskOrder: vi.fn(),
+    } as unknown as AlpacaCliProvider;
+
+    await expect(runAlpacaPaperCanary(request, provider)).rejects.toThrow("Effect receipt verification failed");
+    expect(provider.submitDefinedRiskOrder).not.toHaveBeenCalled();
+  });
 });

@@ -9,8 +9,44 @@ import type {
   AlpacaBootstrapResult,
 } from "./alpaca-bootstrap.js";
 import { fillAlpacaPaperAccountForm } from "./alpaca-paper-account-form.js";
+import {
+  runAlpacaCanaryPass,
+  type AlpacaCanaryCandidateInput,
+} from "./alpaca-canary-pass.js";
 
 export const alpacaPaperAccountRoutes: Route[] = [
+  {
+    type: "POST",
+    path: "/api/life-manager/alpaca/paper-canary",
+    rawPath: true,
+    routeHandler: async (context): Promise<RouteHandlerResult> => {
+      const body = context.body as {
+        runRef?: unknown;
+        candidates?: unknown;
+      } | undefined;
+      if (
+        typeof body?.runRef !== "string" ||
+        !Array.isArray(body.candidates)
+      ) {
+        return { status: 400, body: { error: "canary request is invalid" } };
+      }
+      try {
+        const result = await runAlpacaCanaryPass(context.runtime, {
+          runRef: body.runRef,
+          candidates: body.candidates as AlpacaCanaryCandidateInput[],
+        });
+        return {
+          status: result.status === "RISK_REJECTED" ? 409 : 200,
+          body: result,
+        };
+      } catch {
+        return {
+          status: 409,
+          body: { error: "Alpaca paper canary failed safely" },
+        };
+      }
+    },
+  },
   {
     type: "POST",
     path: "/api/life-manager/alpaca/paper-account-form",

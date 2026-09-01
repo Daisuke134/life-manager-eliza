@@ -52,6 +52,7 @@ export {
   type AlpacaMarketObservation,
   type AlpacaPaperOrderReceipt,
   type AlpacaPaperOrderReadback,
+  type AlpacaOptionSnapshot,
 } from "./financial/alpaca-local-adapter.js";
 export {
   ALPACA_RISK_POLICY,

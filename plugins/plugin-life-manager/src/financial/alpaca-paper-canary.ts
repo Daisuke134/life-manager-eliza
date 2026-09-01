@@ -11,7 +11,7 @@ export interface AlpacaPaperCanaryRequest {
   readonly order: Omit<AlpacaDefinedRiskOrderRequest, "clientOrderId">;
 }
 
-const terminalFailure = new Set(["canceled", "expired", "failed", "rejected", "replaced"]);
+const acceptedStatuses = new Set(["accepted", "pending_new", "new", "partially_filled", "filled", "held", "pending_replace"]);
 
 function boundedRef(value: string, name: string): string {
   if (!value || value.length > 512 || /[\u0000-\u001f\u007f]/u.test(value))
@@ -42,7 +42,7 @@ export function sealAlpacaPaperCanary(request: AlpacaPaperCanaryRequest) {
 }
 
 function receipt(order: AlpacaPaperOrderReadback, effectKey: string, replayed: boolean) {
-  if (terminalFailure.has(order.status)) throw new Error("Alpaca paper order was not accepted");
+  if (!acceptedStatuses.has(order.status)) throw new Error("Alpaca paper order was not accepted");
   const shared = {
     receiptId: order.id,
     operation: "alpaca.paper.options.order.submit",

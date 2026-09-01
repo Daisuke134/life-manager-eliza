@@ -57,6 +57,12 @@ export interface AlpacaMarketObservation {
   readonly accountStatus: "ACTIVE" | "UNKNOWN";
   readonly cash: number;
   readonly equity: number;
+  readonly lastEquity: number;
+  readonly optionsLevel: number;
+  readonly positionsCount: number;
+  readonly openOrdersCount: number;
+  readonly regularSessionOpen: boolean;
+  readonly observedAt: string;
   readonly symbol: string;
   readonly latestPrice: number;
   readonly latestTradeAt: string;
@@ -89,8 +95,21 @@ export interface AlpacaPaperOrderReadback extends AlpacaPaperOrderReceipt {
   readonly filledAveragePrice?: number;
 }
 
+export interface AlpacaOptionSnapshot {
+  readonly symbol: string;
+  readonly bid: number;
+  readonly ask: number;
+  readonly quoteAt: string;
+  readonly observedAt: string;
+  readonly delta: number;
+  readonly gamma: number;
+  readonly theta: number;
+  readonly impliedVolatility: number;
+}
+
 export interface AlpacaCliProvider {
   observe(symbol: string): Promise<AlpacaMarketObservation>;
+  readOptionSnapshots(symbols: readonly string[]): Promise<readonly AlpacaOptionSnapshot[]>;
   findOrderByClientId(clientOrderId: string): Promise<AlpacaPaperOrderReadback | undefined>;
   submitDefinedRiskOrder(
     request: AlpacaDefinedRiskOrderRequest,
@@ -121,7 +140,7 @@ const ACCOUNT_ARGS = [
   "get",
   "--quiet",
   "--jq",
-  "{accountStatus:.status,cash:(.cash|tonumber),equity:(.equity|tonumber),optionsLevel:.options_trading_level}",
+  "{accountStatus:.status,cash:(.cash|tonumber),equity:(.equity|tonumber),lastEquity:(.last_equity|tonumber),optionsLevel:.options_trading_level}",
 ] as const;
 const POSITION_ARGS = [
   "position",
@@ -138,6 +157,12 @@ const ORDER_ARGS = [
   "all",
   "--jq",
   "{count:length}",
+] as const;
+const OPEN_ORDER_ARGS = [
+  "order", "list", "--quiet", "--status", "open", "--limit", "500", "--jq", "{count:length}",
+] as const;
+const CLOCK_ARGS = [
+  "clock", "get", "--quiet", "--jq", "{isOpen:.is_open,observedAt:.timestamp}",
 ] as const;
 const ACTIVITY_ARGS = [
   "account",
@@ -464,6 +489,9 @@ export function createLocalAlpacaCliProvider(
       const symbol = safeToken(rawSymbol.toUpperCase(), "symbol");
       const env = await context();
       const account = json(await command(runner, cliPath, ACCOUNT_ARGS, env));
+      const positions = json(await command(runner, cliPath, POSITION_ARGS, env));
+      const openOrders = json(await command(runner, cliPath, OPEN_ORDER_ARGS, env));
+      const clock = json(await command(runner, cliPath, CLOCK_ARGS, env));
       const trade = json(
         await command(
           runner,
@@ -505,11 +533,53 @@ export function createLocalAlpacaCliProvider(
           account.accountStatus === "ACTIVE" ? "ACTIVE" : "UNKNOWN",
         cash: numberField(account, "cash"),
         equity: numberField(account, "equity"),
+        lastEquity: numberField(account, "lastEquity"),
+        optionsLevel: numberField(account, "optionsLevel"),
+        positionsCount: numberField(positions, "count"),
+        openOrdersCount: numberField(openOrders, "count"),
+        regularSessionOpen: clock.isOpen === true,
+        observedAt: stringField(clock, "observedAt"),
         symbol: stringField(trade, "symbol"),
         latestPrice: numberField(trade, "price"),
         latestTradeAt: stringField(trade, "timestamp"),
         optionContracts: numberField(chain, "count"),
       };
+    },
+    readOptionSnapshots: async (rawSymbols) => {
+      if (rawSymbols.length < 1 || rawSymbols.length > 20)
+        throw new Error("Alpaca option symbol count is invalid");
+      const symbols = rawSymbols.map((value) => {
+        const symbol = safeToken(value.toUpperCase(), "option symbol");
+        if (!/^[A-Z]{1,6}\d{6}[CP]\d{8}$/u.test(symbol))
+          throw new Error("Alpaca option symbol is invalid");
+        return symbol;
+      });
+      const env = await context();
+      const raw = await command(
+        runner,
+        cliPath,
+        [
+          "data", "option", "snapshot", "--symbols", symbols.join(","), "--limit", String(symbols.length),
+          "--quiet", "--jq",
+          ".snapshots|to_entries|map({symbol:.key,bid:.value.latestQuote.bp,ask:.value.latestQuote.ap,quoteAt:.value.latestQuote.t,delta:.value.greeks.delta,gamma:.value.greeks.gamma,theta:.value.greeks.theta,impliedVolatility:.value.impliedVolatility})",
+        ],
+        env,
+      );
+      const parsed: unknown = JSON.parse(raw.trim());
+      if (!Array.isArray(parsed) || parsed.length !== symbols.length || !parsed.every(isRecord))
+        throw new Error("Alpaca option snapshots are incomplete");
+      const observedAt = new Date().toISOString();
+      return Object.freeze(parsed.map((item) => Object.freeze({
+        symbol: stringField(item, "symbol"),
+        bid: numberField(item, "bid"),
+        ask: numberField(item, "ask"),
+        quoteAt: stringField(item, "quoteAt"),
+        observedAt,
+        delta: numberField(item, "delta"),
+        gamma: numberField(item, "gamma"),
+        theta: numberField(item, "theta"),
+        impliedVolatility: numberField(item, "impliedVolatility"),
+      })));
     },
     findOrderByClientId: async (rawClientOrderId) => {
       const clientOrderId = safeToken(rawClientOrderId, "client order ID");

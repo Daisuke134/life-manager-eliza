@@ -1,0 +1,264 @@
+import { createHash, randomUUID } from "node:crypto";
+import { and, eq, lt, or } from "drizzle-orm";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { stringToUuid, type IAgentRuntime } from "@elizaos/core";
+import {
+  effectIntentsTable,
+  goalsTable,
+  lifeManagerDbSchema,
+  outcomeReceiptsTable,
+} from "../db/schema.js";
+import { persistGoalWorkItem } from "../goal-work-item.js";
+import { decideAndPersistAlpacaTrade } from "./alpaca-decision.js";
+import { createLocalAlpacaCliProvider } from "./alpaca-local-adapter.js";
+import { runAlpacaPaperCanary, sealAlpacaPaperCanary } from "./alpaca-paper-canary.js";
+import { evaluateAlpacaRisk } from "./alpaca-risk-gate.js";
+
+export interface AlpacaCanaryCandidateInput {
+  readonly candidateRef: string;
+  readonly structure: "bull_call_debit_spread" | "bear_put_debit_spread";
+  readonly buySymbol: string;
+  readonly sellSymbol: string;
+}
+
+export interface AlpacaCanaryPassRequest {
+  readonly runRef: string;
+  readonly candidates: readonly AlpacaCanaryCandidateInput[];
+}
+
+type Database = NodePgDatabase<typeof lifeManagerDbSchema>;
+const OPTION = /^([A-Z]{1,6})(\d{6})([CP])(\d{8})$/u;
+
+function contract(symbol: string) {
+  const match = OPTION.exec(symbol);
+  if (!match) throw new Error("Alpaca canary option symbol is invalid");
+  return {
+    root: match[1],
+    expiry: match[2],
+    kind: match[3],
+    strike: Number(match[4]) / 1_000,
+  };
+}
+
+function dte(expiry: string, now: Date): number {
+  const year = 2000 + Number(expiry.slice(0, 2));
+  const month = Number(expiry.slice(2, 4));
+  const day = Number(expiry.slice(4, 6));
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.round((Date.UTC(year, month - 1, day) - today) / 86_400_000);
+}
+
+function validateCandidate(value: AlpacaCanaryCandidateInput, now: Date) {
+  if (!value.candidateRef || value.candidateRef.length > 256)
+    throw new Error("Alpaca canary candidate ref is invalid");
+  const buy = contract(value.buySymbol);
+  const sell = contract(value.sellSymbol);
+  if (buy.root !== "SPY" || sell.root !== buy.root || sell.expiry !== buy.expiry || sell.kind !== buy.kind)
+    throw new Error("Alpaca canary spread legs do not match");
+  const call = value.structure === "bull_call_debit_spread";
+  if ((call && (buy.kind !== "C" || buy.strike >= sell.strike)) ||
+      (!call && (buy.kind !== "P" || buy.strike <= sell.strike)))
+    throw new Error("Alpaca canary spread structure is invalid");
+  return { ...value, dte: dte(buy.expiry, now) };
+}
+
+function requestFingerprint(candidates: readonly AlpacaCanaryCandidateInput[]): string {
+  return createHash("sha256").update(JSON.stringify(candidates)).digest("hex");
+}
+
+async function ensureWorkItem(runtime: IAgentRuntime, db: Database, runRef: string, fingerprint: string, now: Date) {
+  const agentId = runtime.agentId;
+  const entityId = runtime.agentId;
+  const goalId = stringToUuid(`life-manager:alpaca:paper-canary:${runRef}`);
+  await db.insert(goalsTable).values({
+    id: goalId,
+    agentId,
+    entityId,
+    statement: "Evaluate and, only if allowed, place one defined-risk Alpaca paper options canary.",
+    provenance: { kind: "owner_goal", runRef, fingerprint },
+    status: "active",
+  }).onConflictDoNothing();
+  const goal = (await db.select({ provenance: goalsTable.provenance }).from(goalsTable).where(and(
+    eq(goalsTable.agentId, agentId),
+    eq(goalsTable.entityId, entityId),
+    eq(goalsTable.id, goalId),
+  )).limit(1))[0];
+  if (!goal || typeof goal.provenance !== "object" || goal.provenance === null ||
+      (goal.provenance as { fingerprint?: unknown }).fingerprint !== fingerprint)
+    throw new Error("Alpaca canary runRef input conflict");
+  await persistGoalWorkItem(db, { agentId, entityId, goalId, now });
+  return { agentId, entityId, workItemId: goalId };
+}
+
+type Scope = Awaited<ReturnType<typeof ensureWorkItem>>;
+type CanaryRequest = Parameters<typeof runAlpacaPaperCanary>[0];
+
+async function executeStoredIntent(
+  db: Database,
+  scope: Scope,
+  stored: { canaryRequest?: unknown; expiresAt?: unknown },
+  provider: ReturnType<typeof createLocalAlpacaCliProvider>,
+) {
+  if (!stored.canaryRequest || typeof stored.expiresAt !== "string")
+    throw new Error("Alpaca canary stored intent is incomplete");
+  const canaryRequest = stored.canaryRequest as CanaryRequest;
+  const sealed = sealAlpacaPaperCanary(canaryRequest);
+  if (await provider.findOrderByClientId(sealed.clientOrderId))
+    return runAlpacaPaperCanary(canaryRequest, provider);
+  const now = new Date();
+  const leaseOwner = randomUUID();
+  const claimed = await db.update(effectIntentsTable).set({
+    status: "running",
+    leaseOwner,
+    leaseExpiresAt: new Date(now.getTime() + 30_000),
+  }).where(and(
+    eq(effectIntentsTable.agentId, scope.agentId),
+    eq(effectIntentsTable.entityId, scope.entityId),
+    eq(effectIntentsTable.workItemId, scope.workItemId),
+    or(
+      eq(effectIntentsTable.status, "planned"),
+      and(eq(effectIntentsTable.status, "running"), lt(effectIntentsTable.leaseExpiresAt, now)),
+    ),
+  )).returning({ id: effectIntentsTable.id });
+  if (claimed.length !== 1) throw new Error("Alpaca canary effect is already claimed");
+  if (Date.now() > Date.parse(stored.expiresAt)) {
+    await db.update(effectIntentsTable).set({ status: "expired", leaseOwner: null, leaseExpiresAt: null }).where(eq(effectIntentsTable.id, claimed[0]!.id));
+    throw new Error("Alpaca canary sealed plan expired before effect");
+  }
+  const result = await runAlpacaPaperCanary(canaryRequest, provider);
+  await db.update(effectIntentsTable).set({ status: "applied", leaseOwner: null, leaseExpiresAt: null }).where(and(
+    eq(effectIntentsTable.id, claimed[0]!.id),
+    eq(effectIntentsTable.leaseOwner, leaseOwner),
+  ));
+  return result;
+}
+
+export async function runAlpacaCanaryPass(
+  runtime: IAgentRuntime,
+  request: AlpacaCanaryPassRequest,
+) {
+  if (!request.runRef || request.runRef.length > 128 || request.candidates.length < 1 || request.candidates.length > 4)
+    throw new Error("Alpaca canary pass request is invalid");
+  const now = new Date();
+  const candidates = request.candidates.map((candidate) => validateCandidate(candidate, now));
+  if (new Set(candidates.map(({ candidateRef }) => candidateRef)).size !== candidates.length)
+    throw new Error("Alpaca canary candidate refs must be unique");
+  const db = runtime.db as unknown as Database | undefined;
+  if (!db || typeof db.transaction !== "function") throw new Error("Alpaca canary requires plugin-sql runtime.db");
+  const fingerprint = requestFingerprint(request.candidates);
+  const scope = await ensureWorkItem(runtime, db, request.runRef, fingerprint, now);
+  const provider = createLocalAlpacaCliProvider();
+  const existingIntent = (await db.select({ inputRefs: effectIntentsTable.inputRefs }).from(effectIntentsTable).where(and(
+    eq(effectIntentsTable.agentId, scope.agentId),
+    eq(effectIntentsTable.entityId, scope.entityId),
+    eq(effectIntentsTable.workItemId, scope.workItemId),
+  )).limit(1))[0];
+  if (existingIntent) {
+    const stored = existingIntent.inputRefs as { canaryRequest?: unknown; expiresAt?: unknown };
+    const result = await executeStoredIntent(db, scope, stored, provider);
+    return Object.freeze({ status: "ORDER_VERIFIED", result });
+  }
+  const observedAccount = await provider.observe("SPY");
+  if (observedAccount.positionsCount !== 0 || observedAccount.openOrdersCount !== 0)
+    throw new Error("Alpaca canary requires an empty paper account");
+  const snapshots = await provider.readOptionSnapshots(candidates.flatMap(({ buySymbol, sellSymbol }) => [buySymbol, sellSymbol]));
+  const bySymbol = new Map(snapshots.map((snapshot) => [snapshot.symbol, snapshot]));
+  const offered = candidates.map((candidate) => {
+    const buy = bySymbol.get(candidate.buySymbol);
+    const sell = bySymbol.get(candidate.sellSymbol);
+    if (!buy || !sell) throw new Error("Alpaca canary snapshot is incomplete");
+    const bid = buy.bid - sell.ask;
+    const ask = buy.ask - sell.bid;
+    if (!(bid > 0 && ask >= bid)) throw new Error("Alpaca canary spread quote is invalid");
+    const netDebit = Math.round(ask * 100) / 100;
+    return { ...candidate, buy, sell, bid, ask, netDebit, maxLossUsd: netDebit * 100 };
+  });
+  const evidenceRefs = offered.flatMap(({ buySymbol, sellSymbol }) => [
+    `alpaca-cli://option-snapshot/${buySymbol}`,
+    `alpaca-cli://option-snapshot/${sellSymbol}`,
+  ]);
+  const decision = await decideAndPersistAlpacaTrade(runtime, db, {
+    ...scope,
+    objective: "Choose at most one minimum-risk SPY debit spread paper canary, or NO_TRADE.",
+    observation: { account: observedAccount, candidates: offered.map(({ buy, sell, ...candidate }) => ({ ...candidate, buy, sell })) },
+    evidenceRefs,
+    candidateRefs: offered.map(({ candidateRef }) => candidateRef),
+  });
+  if (decision.status === "NO_TRADE") return Object.freeze({ status: "NO_TRADE", decision });
+  const selected = offered.find(({ candidateRef }) => candidateRef === decision.candidateRef);
+  if (!selected) throw new Error("Alpaca canary selected candidate is unavailable");
+  const account = await provider.observe("SPY");
+  if (account.positionsCount !== 0 || account.openOrdersCount !== 0)
+    throw new Error("Alpaca canary account changed before effect");
+  const quoteAtMs = Math.min(Date.parse(selected.buy.quoteAt), Date.parse(selected.sell.quoteAt));
+  const risk = evaluateAlpacaRisk({
+    nowMs: Date.now(),
+    regularSessionOpen: account.regularSessionOpen,
+    reconciliationHealthy: account.positionsCount === 0 && account.openOrdersCount === 0,
+    decision,
+    structure: selected.structure,
+    quantity: 1,
+    netDebitPerShare: selected.netDebit,
+    equityUsd: account.equity,
+    cashUsd: account.cash,
+    highWaterEquityUsd: Math.max(100_000, account.equity, account.lastEquity),
+    dailyPnlUsd: account.equity - account.lastEquity,
+    openMaxLossUsd: 0,
+    borrowedValueUsd: account.positionsCount === 0 ? 0 : 1,
+    optionsLevel: account.optionsLevel,
+    positionsCount: account.positionsCount,
+    openOrdersCount: account.openOrdersCount,
+    quoteBid: selected.bid,
+    quoteAsk: selected.ask,
+    quoteAtMs,
+    greeksAtMs: Math.min(Date.parse(selected.buy.observedAt), Date.parse(selected.sell.observedAt)),
+    dte: selected.dte,
+  });
+  if (!risk.allowed) return Object.freeze({ status: "RISK_REJECTED", decision, risk });
+  const canaryRequest = {
+    workItemRef: `life-manager-work-item://${scope.workItemId}`,
+    decisionReceiptRef: `life-manager-decision://${scope.workItemId}`,
+    riskReceiptRef: `life-manager-risk://${scope.workItemId}`,
+    risk,
+    order: {
+      paper: true as const,
+      quantity: 1,
+      limitPrice: selected.netDebit,
+      legs: [
+        { symbol: selected.buySymbol, ratioQuantity: 1, positionIntent: "buy_to_open" as const },
+        { symbol: selected.sellSymbol, ratioQuantity: 1, positionIntent: "sell_to_open" as const },
+      ],
+    },
+  };
+  const intent = sealAlpacaPaperCanary(canaryRequest);
+  await db.insert(effectIntentsTable).values({
+    agentId: scope.agentId,
+    entityId: scope.entityId,
+    workItemId: scope.workItemId,
+    effectClass: "broker.paper.order",
+    effectKey: intent.effectKey,
+    inputRefs: { ...intent.inputRefs, canaryRequest, expiresAt: new Date(Date.now() + 30_000).toISOString() },
+    status: "planned",
+  }).onConflictDoNothing();
+  const storedIntent = (await db.select({ inputRefs: effectIntentsTable.inputRefs }).from(effectIntentsTable).where(and(
+    eq(effectIntentsTable.agentId, scope.agentId),
+    eq(effectIntentsTable.entityId, scope.entityId),
+    eq(effectIntentsTable.workItemId, scope.workItemId),
+  )).limit(1))[0];
+  if (!storedIntent) throw new Error("Alpaca canary effect intent persistence failed");
+  const result = await executeStoredIntent(db, scope, storedIntent.inputRefs as { canaryRequest?: unknown; expiresAt?: unknown }, provider);
+  await db.insert(outcomeReceiptsTable).values({
+    agentId: scope.agentId,
+    entityId: scope.entityId,
+    effectIntentId: (await db.select({ id: effectIntentsTable.id }).from(effectIntentsTable).where(and(
+      eq(effectIntentsTable.agentId, scope.agentId),
+      eq(effectIntentsTable.entityId, scope.entityId),
+      eq(effectIntentsTable.effectKey, intent.effectKey),
+    )).limit(1))[0]!.id,
+    attempt: 0,
+    outcome: result.receipt.outcome,
+    effectKey: intent.effectKey,
+    receipt: result.receipt,
+  }).onConflictDoNothing();
+  return Object.freeze({ status: "ORDER_VERIFIED", decision, risk, result });
+}
