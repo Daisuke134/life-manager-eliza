@@ -107,10 +107,41 @@ export interface AlpacaOptionSnapshot {
   readonly impliedVolatility: number;
 }
 
+export interface AlpacaCampaignPosition {
+  readonly symbol: string;
+  readonly quantity: number;
+  readonly side: "long" | "short";
+  readonly averageEntryPrice: number;
+  readonly currentPrice: number;
+  readonly marketValue: number;
+  readonly unrealizedPnl: number;
+}
+
+export interface AlpacaCampaignFill {
+  readonly id: string;
+  readonly orderId: string;
+  readonly symbol: string;
+  readonly side: "buy" | "sell";
+  readonly quantity: number;
+  readonly price: number;
+  readonly transactionAt: string;
+}
+
+export interface AlpacaCampaignSnapshot {
+  readonly paper: true;
+  readonly cash: number;
+  readonly equity: number;
+  readonly lastEquity: number;
+  readonly positions: readonly AlpacaCampaignPosition[];
+  readonly fills: readonly AlpacaCampaignFill[];
+  readonly observedAt: string;
+}
+
 export interface AlpacaCliProvider {
   observe(symbol: string): Promise<AlpacaMarketObservation>;
   readOptionSnapshots(symbols: readonly string[]): Promise<readonly AlpacaOptionSnapshot[]>;
   findOrderByClientId(clientOrderId: string): Promise<AlpacaPaperOrderReadback | undefined>;
+  readCampaignSnapshot(): Promise<AlpacaCampaignSnapshot>;
   submitDefinedRiskOrder(
     request: AlpacaDefinedRiskOrderRequest,
   ): Promise<AlpacaPaperOrderReceipt>;
@@ -609,6 +640,59 @@ export function createLocalAlpacaCliProvider(
         filledQuantity: numberField(order, "filledQuantity"),
         ...(typeof average === "number" ? { filledAveragePrice: average } : {}),
       };
+    },
+    readCampaignSnapshot: async () => {
+      const env = await context();
+      const account = json(await command(runner, cliPath, ACCOUNT_ARGS, env));
+      const positionRaw = await command(
+        runner,
+        cliPath,
+        [
+          "position", "list", "--quiet", "--jq",
+          "map({symbol:.symbol,quantity:(.qty|tonumber),side:.side,averageEntryPrice:(.avg_entry_price|tonumber),currentPrice:(.current_price|tonumber),marketValue:(.market_value|tonumber),unrealizedPnl:(.unrealized_pl|tonumber)})",
+        ],
+        env,
+      );
+      const fillRaw = await command(
+        runner,
+        cliPath,
+        [
+          "account", "activity", "list", "--activity-types", "FILL", "--page-size", "100", "--direction", "asc", "--quiet", "--jq",
+          "map({id:.id,orderId:.order_id,symbol:.symbol,side:(if .side==\"sell_short\" then \"sell\" else .side end),quantity:(.qty|tonumber),price:(.price|tonumber),transactionAt:.transaction_time})",
+        ],
+        env,
+      );
+      const positions: unknown = JSON.parse(positionRaw.trim());
+      const fills: unknown = JSON.parse(fillRaw.trim());
+      if (!Array.isArray(positions) || !positions.every(isRecord))
+        throw new Error("Alpaca campaign positions are invalid");
+      if (!Array.isArray(fills) || !fills.every(isRecord))
+        throw new Error("Alpaca campaign fills are invalid");
+      return Object.freeze({
+        paper: true as const,
+        cash: numberField(account, "cash"),
+        equity: numberField(account, "equity"),
+        lastEquity: numberField(account, "lastEquity"),
+        positions: Object.freeze(positions.map((position) => Object.freeze({
+          symbol: stringField(position, "symbol"),
+          quantity: numberField(position, "quantity"),
+          side: position.side === "long" ? "long" as const : position.side === "short" ? "short" as const : (() => { throw new Error("Alpaca position side is invalid"); })(),
+          averageEntryPrice: numberField(position, "averageEntryPrice"),
+          currentPrice: numberField(position, "currentPrice"),
+          marketValue: numberField(position, "marketValue"),
+          unrealizedPnl: numberField(position, "unrealizedPnl"),
+        }))),
+        fills: Object.freeze(fills.map((fill) => Object.freeze({
+          id: stringField(fill, "id"),
+          orderId: stringField(fill, "orderId"),
+          symbol: stringField(fill, "symbol"),
+          side: fill.side === "buy" ? "buy" as const : fill.side === "sell" ? "sell" as const : (() => { throw new Error("Alpaca fill side is invalid"); })(),
+          quantity: numberField(fill, "quantity"),
+          price: numberField(fill, "price"),
+          transactionAt: stringField(fill, "transactionAt"),
+        }))),
+        observedAt: new Date().toISOString(),
+      });
     },
     submitDefinedRiskOrder: async (request) => {
       if (request.paper !== true)

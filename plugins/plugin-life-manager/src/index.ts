@@ -96,6 +96,7 @@ export class LifeManagerService extends Service {
   capabilityDescription =
     "Hosts Life Manager capabilities inside the existing Eliza runtime.";
   static async start(runtime: IAgentRuntime): Promise<LifeManagerService> {
+    registerAlpacaPaperLoop(runtime);
     return new LifeManagerService(runtime);
   }
   async persistGoalWorkItem(
@@ -168,7 +169,9 @@ export class LifeManagerService extends Service {
     }
     return readGoalReflection(db, input);
   }
-  async stop(): Promise<void> {}
+  async stop(): Promise<void> {
+    unregisterAlpacaPaperLoop(this.runtime);
+  }
 }
 
 export const lifeManagerHealthProvider: Provider = {
