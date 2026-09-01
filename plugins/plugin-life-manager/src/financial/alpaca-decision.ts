@@ -2,7 +2,6 @@ import {
   callModelWithValidation,
   type IAgentRuntime,
   ModelType,
-  type ToolDefinition,
 } from "@elizaos/core";
 import { and, eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -162,13 +161,6 @@ export async function decideAndPersistAlpacaTrade(
       params: parameters,
     },
   };
-  const tool: ToolDefinition = {
-    name: ALPACA_TRADING_DECISION,
-    description:
-      "Return NO_TRADE or one defined-risk options thesis. State structure, exact maximum loss, invalidation, exit plan, and only offered evidence references. Do not place an order.",
-    parameters,
-    strict: true,
-  };
   const prompt = [
     "Decide whether this paper account should take one defined-risk options trade now.",
     `Return only one JSON object shaped as ${JSON.stringify({ action: ALPACA_TRADING_DECISION, params: Object.fromEntries(fields.map((field) => [field, `<${field}>`])) })}.`,
@@ -183,8 +175,6 @@ export async function decideAndPersistAlpacaTrade(
     params: {
       prompt,
       messages: [{ role: "user", content: prompt }],
-      tools: [tool],
-      toolChoice: "required",
       responseFormat: { type: "json_object" },
       responseSchema: schema,
       voiceOutput: "internal",
