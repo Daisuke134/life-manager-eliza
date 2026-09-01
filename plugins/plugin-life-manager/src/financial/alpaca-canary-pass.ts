@@ -10,7 +10,7 @@ import {
 } from "../db/schema.js";
 import { persistGoalWorkItem } from "../goal-work-item.js";
 import { decideAndPersistAlpacaTrade } from "./alpaca-decision.js";
-import { createLocalAlpacaCliProvider } from "./alpaca-local-adapter.js";
+import { createLocalAlpacaCliProvider, type AlpacaCampaignSnapshot } from "./alpaca-local-adapter.js";
 import { reconcileAlpacaPaperCanaryReadback, runAlpacaPaperCanary, sealAlpacaPaperCanary } from "./alpaca-paper-canary.js";
 import { evaluateAlpacaRisk } from "./alpaca-risk-gate.js";
 
@@ -178,6 +178,86 @@ async function persistOutcome(db: Database, scope: Scope, intent: StoredIntent, 
   }).onConflictDoNothing();
 }
 
+function reconcileCampaignSnapshot(
+  snapshot: AlpacaCampaignSnapshot,
+  expectedSymbols: readonly string[],
+) {
+  const expected = new Set(expectedSymbols);
+  if (snapshot.positions.some(({ symbol }) => !expected.has(symbol)) ||
+      snapshot.fills.some(({ symbol }) => !expected.has(symbol)))
+    throw new Error("Alpaca campaign contains an unknown instrument; reconciliation breaker is open");
+  const netFilled = new Map(expectedSymbols.map((symbol) => [symbol, 0]));
+  let fillCashFlowUsd = 0;
+  for (const fill of snapshot.fills) {
+    if (!(fill.quantity > 0) || !(fill.price > 0))
+      throw new Error("Alpaca campaign fill is invalid; reconciliation breaker is open");
+    const sign = fill.side === "buy" ? 1 : -1;
+    netFilled.set(fill.symbol, (netFilled.get(fill.symbol) ?? 0) + sign * fill.quantity);
+    fillCashFlowUsd += -sign * fill.quantity * fill.price * 100;
+  }
+  const positions = new Map(snapshot.positions.map((position) => [position.symbol, position]));
+  for (const symbol of expectedSymbols) {
+    const position = positions.get(symbol);
+    const officialQuantity = position?.quantity ?? 0;
+    if (Math.abs((netFilled.get(symbol) ?? 0) - officialQuantity) > 1e-9)
+      throw new Error("Alpaca campaign fill/position quantity mismatch; reconciliation breaker is open");
+    if (position && ((position.side === "long") !== (position.quantity > 0)))
+      throw new Error("Alpaca campaign position side mismatch; reconciliation breaker is open");
+  }
+  const unrealizedPnlUsd = snapshot.positions.reduce((sum, position) => sum + position.unrealizedPnl, 0);
+  const closed = snapshot.positions.length === 0 && snapshot.fills.length > 0;
+  return Object.freeze({
+    paper: true as const,
+    status: closed ? "CLOSED" as const : "OPEN" as const,
+    equityUsd: snapshot.equity,
+    cashUsd: snapshot.cash,
+    fillCount: snapshot.fills.length,
+    positionCount: snapshot.positions.length,
+    fillCashFlowUsd: Math.round(fillCashFlowUsd * 100) / 100,
+    unrealizedPnlUsd: Math.round(unrealizedPnlUsd * 100) / 100,
+    ...(closed ? { realizedPnlUsd: Math.round(fillCashFlowUsd * 100) / 100 } : {}),
+    observedAt: snapshot.observedAt,
+  });
+}
+
+async function persistCampaignSnapshot(
+  db: Database,
+  scope: Scope,
+  provider: ReturnType<typeof createLocalAlpacaCliProvider>,
+  expectedSymbols: readonly string[],
+) {
+  const projection = reconcileCampaignSnapshot(await provider.readCampaignSnapshot(), expectedSymbols);
+  const fingerprint = createHash("sha256")
+    .update(JSON.stringify({ ...projection, observedAt: undefined }))
+    .digest("hex");
+  const effectKey = `alpaca-paper-campaign-observation:${fingerprint}`;
+  await db.insert(effectIntentsTable).values({
+    agentId: scope.agentId,
+    entityId: scope.entityId,
+    workItemId: scope.workItemId,
+    effectClass: "broker.paper.reconcile",
+    effectKey,
+    inputRefs: { provider: "alpaca-cli", paper: true, expectedSymbols },
+    status: "applied",
+  }).onConflictDoNothing();
+  const intent = (await db.select({ id: effectIntentsTable.id }).from(effectIntentsTable).where(and(
+    eq(effectIntentsTable.agentId, scope.agentId),
+    eq(effectIntentsTable.entityId, scope.entityId),
+    eq(effectIntentsTable.effectKey, effectKey),
+  )).limit(1))[0];
+  if (!intent) throw new Error("Alpaca campaign observation intent persistence failed");
+  await db.insert(outcomeReceiptsTable).values({
+    agentId: scope.agentId,
+    entityId: scope.entityId,
+    effectIntentId: intent.id,
+    attempt: 0,
+    outcome: "observed",
+    effectKey,
+    receipt: projection,
+  }).onConflictDoNothing();
+  return projection;
+}
+
 export async function runAlpacaCanaryPass(
   runtime: IAgentRuntime,
   request: AlpacaCanaryPassRequest,
@@ -202,11 +282,18 @@ export async function runAlpacaCanaryPass(
     eq(effectIntentsTable.agentId, scope.agentId),
     eq(effectIntentsTable.entityId, scope.entityId),
     eq(effectIntentsTable.workItemId, scope.workItemId),
+    eq(effectIntentsTable.effectClass, "broker.paper.order"),
   )).limit(1))[0];
   if (existingIntent) {
     const result = await executeStoredIntent(db, existingIntent, provider);
     await persistOutcome(db, scope, existingIntent, result);
-    return Object.freeze({ status: "ORDER_VERIFIED", result });
+    const campaign = await persistCampaignSnapshot(
+      db,
+      scope,
+      provider,
+      candidates.flatMap(({ buySymbol, sellSymbol }) => [buySymbol, sellSymbol]),
+    );
+    return Object.freeze({ status: "ORDER_VERIFIED", result, campaign });
   }
   const observedAccount = await provider.observe("SPY");
   if (observedAccount.positionsCount !== 0 || observedAccount.openOrdersCount !== 0)
@@ -299,6 +386,7 @@ export async function runAlpacaCanaryPass(
     eq(effectIntentsTable.agentId, scope.agentId),
     eq(effectIntentsTable.entityId, scope.entityId),
     eq(effectIntentsTable.workItemId, scope.workItemId),
+    eq(effectIntentsTable.effectClass, "broker.paper.order"),
   )).limit(1))[0];
   if (!storedIntent) throw new Error("Alpaca canary effect intent persistence failed");
   const result = await executeStoredIntent(db, storedIntent, provider);
