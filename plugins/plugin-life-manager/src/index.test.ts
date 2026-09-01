@@ -3,6 +3,7 @@ import { AgentRuntime } from "@elizaos/core";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
+  decisionReceiptsTable,
   economicReceiptsTable,
   effectIntentsTable,
   goalsTable,
@@ -31,11 +32,12 @@ import {
 } from "./index";
 
 describe("lifeManagerPlugin", () => {
-  it("registers the six tenant-scoped Life Manager domain tables", () => {
+  it("registers the tenant-scoped Life Manager domain tables", () => {
     const tables = [
       ["goals", goalsTable],
       ["plan_graphs", planGraphsTable],
       ["work_items", workItemsTable],
+      ["decision_receipts", decisionReceiptsTable],
       ["effect_intents", effectIntentsTable],
       ["outcome_receipts", outcomeReceiptsTable],
       ["economic_receipts", economicReceiptsTable],

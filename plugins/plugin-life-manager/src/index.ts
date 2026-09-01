@@ -36,6 +36,11 @@ import { alpacaBootstrapSecretFillAction } from "./financial/alpaca-bootstrap-se
 import { alpacaPaperAccountFormAction } from "./financial/alpaca-paper-account-form.js";
 import { alpacaPaperAccountRoutes } from "./financial/alpaca-paper-account-routes.js";
 import {
+  decideAndPersistAlpacaTrade,
+  type AlpacaDecisionRequest,
+  type AlpacaTradingDecision,
+} from "./financial/alpaca-decision.js";
+import {
   type AlpacaLocalAdapterOptions,
   createLocalAlpacaBootstrapDependencies,
 } from "./financial/alpaca-local-adapter.js";
@@ -98,6 +103,19 @@ export class LifeManagerService extends Service {
     request: SpecialistDecisionRequest,
   ): Promise<SpecialistDecision> {
     return decideSpecialistStepOperation(this.runtime, request);
+  }
+  async decideAlpacaTrade(
+    request: AlpacaDecisionRequest,
+  ): Promise<AlpacaTradingDecision> {
+    const db = this.runtime.db as unknown as
+      | import("drizzle-orm/node-postgres").NodePgDatabase<
+          typeof lifeManagerDbSchema
+        >
+      | undefined;
+    if (!db || typeof db.transaction !== "function") {
+      throw new Error("Alpaca decision requires plugin-sql runtime.db");
+    }
+    return decideAndPersistAlpacaTrade(this.runtime, db, request);
   }
   async runEffectReceiptKernel(
     request: EffectReceiptKernelRequest,

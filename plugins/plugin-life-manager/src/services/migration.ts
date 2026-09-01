@@ -6,6 +6,7 @@ export const LIFE_MANAGER_DOMAIN_TABLES = [
   "goals",
   "plan_graphs",
   "work_items",
+  "decision_receipts",
   "effect_intents",
   "outcome_receipts",
   "economic_receipts",
