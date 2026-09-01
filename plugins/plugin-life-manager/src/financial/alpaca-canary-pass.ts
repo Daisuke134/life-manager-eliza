@@ -4,6 +4,8 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { stringToUuid, type IAgentRuntime } from "@elizaos/core";
 import {
   effectIntentsTable,
+  decisionReceiptsTable,
+  economicReceiptsTable,
   goalsTable,
   lifeManagerDbSchema,
   outcomeReceiptsTable,
@@ -213,6 +215,8 @@ function reconcileCampaignSnapshot(
     cashUsd: snapshot.cash,
     fillCount: snapshot.fills.length,
     positionCount: snapshot.positions.length,
+    fills: snapshot.fills,
+    positions: snapshot.positions,
     fillCashFlowUsd: Math.round(fillCashFlowUsd * 100) / 100,
     unrealizedPnlUsd: Math.round(unrealizedPnlUsd * 100) / 100,
     ...(closed ? { realizedPnlUsd: Math.round(fillCashFlowUsd * 100) / 100 } : {}),
@@ -246,7 +250,7 @@ async function persistCampaignSnapshot(
     eq(effectIntentsTable.effectKey, effectKey),
   )).limit(1))[0];
   if (!intent) throw new Error("Alpaca campaign observation intent persistence failed");
-  await db.insert(outcomeReceiptsTable).values({
+  const outcome = (await db.insert(outcomeReceiptsTable).values({
     agentId: scope.agentId,
     entityId: scope.entityId,
     effectIntentId: intent.id,
@@ -254,8 +258,109 @@ async function persistCampaignSnapshot(
     outcome: "observed",
     effectKey,
     receipt: projection,
-  }).onConflictDoNothing();
+  }).onConflictDoNothing().returning({ id: outcomeReceiptsTable.id }))[0] ??
+    (await db.select({ id: outcomeReceiptsTable.id }).from(outcomeReceiptsTable).where(and(
+      eq(outcomeReceiptsTable.agentId, scope.agentId),
+      eq(outcomeReceiptsTable.entityId, scope.entityId),
+      eq(outcomeReceiptsTable.effectIntentId, intent.id),
+      eq(outcomeReceiptsTable.attempt, 0),
+    )).limit(1))[0];
+  if (!outcome) throw new Error("Alpaca campaign outcome persistence failed");
+  if (projection.status === "CLOSED" && projection.realizedPnlUsd !== undefined) {
+    await db.insert(economicReceiptsTable).values({
+      agentId: scope.agentId,
+      entityId: scope.entityId,
+      outcomeReceiptId: outcome.id,
+      entryKey: `${effectKey}:realized-pnl`,
+      kind: projection.realizedPnlUsd >= 0 ? "paper_realized_gain" : "paper_realized_loss",
+      amountMinor: String(Math.round(Math.abs(projection.realizedPnlUsd) * 100)),
+      currency: "USD",
+      verificationStatus: "alpaca_cli_verified_paper",
+      occurredAt: new Date(projection.observedAt),
+    }).onConflictDoNothing();
+  }
   return projection;
+}
+
+export async function closeAlpacaCanaryCampaign(
+  runtime: IAgentRuntime,
+  request: AlpacaCanaryPassRequest,
+) {
+  const now = new Date();
+  const candidates = request.candidates.map((candidate) => validateCandidate(candidate, now));
+  if (candidates.length !== 1) throw new Error("Alpaca campaign exit requires one sealed candidate");
+  const candidate = candidates[0]!;
+  const db = runtime.db as unknown as Database | undefined;
+  if (!db || typeof db.transaction !== "function") throw new Error("Alpaca campaign exit requires plugin-sql runtime.db");
+  const scope = await ensureWorkItem(runtime, db, request.runRef, requestFingerprint(request.candidates), now);
+  const decision = (await db.select({ decision: decisionReceiptsTable.decision }).from(decisionReceiptsTable).where(and(
+    eq(decisionReceiptsTable.agentId, scope.agentId),
+    eq(decisionReceiptsTable.entityId, scope.entityId),
+    eq(decisionReceiptsTable.workItemId, scope.workItemId),
+  )).limit(1))[0]?.decision as { exitPlan?: unknown } | undefined;
+  if (typeof decision?.exitPlan !== "string" || !decision.exitPlan)
+    throw new Error("Alpaca campaign exit plan is unavailable");
+  const provider = createLocalAlpacaCliProvider();
+  const before = reconcileCampaignSnapshot(
+    await provider.readCampaignSnapshot(),
+    [candidate.buySymbol, candidate.sellSymbol],
+  );
+  if (before.status === "CLOSED") return Object.freeze({ status: "CLOSED", campaign: before });
+  const market = await provider.observe("SPY");
+  if (!market.regularSessionOpen)
+    return Object.freeze({ status: "HOLD_CLOSED_SESSION", campaign: before });
+  const snapshots = await provider.readOptionSnapshots([candidate.buySymbol, candidate.sellSymbol]);
+  const bySymbol = new Map(snapshots.map((snapshot) => [snapshot.symbol, snapshot]));
+  const buy = bySymbol.get(candidate.buySymbol);
+  const sell = bySymbol.get(candidate.sellSymbol);
+  if (!buy || !sell) throw new Error("Alpaca campaign exit quote is incomplete");
+  const credit = Math.round((buy.bid - sell.ask) * 100) / 100;
+  if (!(credit > 0)) throw new Error("Alpaca campaign exit credit is invalid");
+  const entry = (await db.select({ inputRefs: effectIntentsTable.inputRefs }).from(effectIntentsTable).where(and(
+    eq(effectIntentsTable.agentId, scope.agentId),
+    eq(effectIntentsTable.entityId, scope.entityId),
+    eq(effectIntentsTable.workItemId, scope.workItemId),
+    eq(effectIntentsTable.effectClass, "broker.paper.order"),
+  )).limit(1))[0]?.inputRefs as { canaryRequest?: CanaryRequest } | undefined;
+  if (!entry?.canaryRequest) throw new Error("Alpaca campaign entry receipt is unavailable");
+  const exitRequest: CanaryRequest = {
+    ...entry.canaryRequest,
+    decisionReceiptRef: `${entry.canaryRequest.decisionReceiptRef}:exit`,
+    order: {
+      paper: true,
+      quantity: 1,
+      limitPrice: -credit,
+      legs: [
+        { symbol: candidate.buySymbol, ratioQuantity: 1, positionIntent: "sell_to_close" },
+        { symbol: candidate.sellSymbol, ratioQuantity: 1, positionIntent: "buy_to_close" },
+      ],
+    },
+  };
+  const sealed = sealAlpacaPaperCanary(exitRequest);
+  await db.insert(effectIntentsTable).values({
+    agentId: scope.agentId,
+    entityId: scope.entityId,
+    workItemId: scope.workItemId,
+    effectClass: "broker.paper.order",
+    effectKey: sealed.effectKey,
+    inputRefs: { ...sealed.inputRefs, exitPlan: decision.exitPlan, canaryRequest: exitRequest, expiresAt: new Date(Date.now() + 30_000).toISOString() },
+    status: "planned",
+  }).onConflictDoNothing();
+  const intent = (await db.select({
+    id: effectIntentsTable.id,
+    status: effectIntentsTable.status,
+    effectKey: effectIntentsTable.effectKey,
+    inputRefs: effectIntentsTable.inputRefs,
+  }).from(effectIntentsTable).where(and(
+    eq(effectIntentsTable.agentId, scope.agentId),
+    eq(effectIntentsTable.entityId, scope.entityId),
+    eq(effectIntentsTable.effectKey, sealed.effectKey),
+  )).limit(1))[0];
+  if (!intent) throw new Error("Alpaca campaign exit intent persistence failed");
+  const result = await executeStoredIntent(db, intent, provider);
+  await persistOutcome(db, scope, intent, result);
+  const campaign = await persistCampaignSnapshot(db, scope, provider, [candidate.buySymbol, candidate.sellSymbol]);
+  return Object.freeze({ status: campaign.status === "CLOSED" ? "CLOSED" : "EXIT_VERIFIED", result, campaign });
 }
 
 export async function runAlpacaCanaryPass(
