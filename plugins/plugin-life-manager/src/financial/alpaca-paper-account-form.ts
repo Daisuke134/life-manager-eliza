@@ -11,9 +11,9 @@ interface Parameters {
 
 interface BrowserServiceShape {
   execute(command: {
-    subaction: "realistic-fill" | "realistic-click";
+    subaction: "realistic-type" | "realistic-click";
     selector: string;
-    value?: string;
+    text?: string;
   }): Promise<unknown>;
 }
 
@@ -62,7 +62,12 @@ export async function fillAlpacaPaperAccountForm(
   if (!field || !(field in FIELDS)) {
     return { success: false, text: "Paper account form field is invalid." };
   }
-  await browser.execute({ subaction: "realistic-fill", ...FIELDS[field] });
+  const input = FIELDS[field];
+  await browser.execute({
+    subaction: "realistic-type",
+    selector: input.selector,
+    text: input.value,
+  });
   return {
     success: true,
     text: `Filled the Alpaca paper account ${field} field.`,
