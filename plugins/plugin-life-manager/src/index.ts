@@ -36,10 +36,6 @@ import { alpacaBootstrapSecretFillAction } from "./financial/alpaca-bootstrap-se
 import { alpacaPaperAccountFormAction } from "./financial/alpaca-paper-account-form.js";
 import { alpacaPaperAccountRoutes } from "./financial/alpaca-paper-account-routes.js";
 import {
-  registerAlpacaPaperLoop,
-  unregisterAlpacaPaperLoop,
-} from "./financial/alpaca-loop.js";
-import {
   decideAndPersistAlpacaTrade,
   type AlpacaDecisionRequest,
   type AlpacaTradingDecision,
@@ -93,6 +89,7 @@ import {
   type SpecialistDecision,
   type SpecialistDecisionRequest,
 } from "./specialist-decision.js";
+import { registerMoneyLoop, unregisterMoneyLoop } from "./money-loop.js";
 
 export const LIFE_MANAGER_SERVICE_TYPE = "LIFE_MANAGER" as const;
 
@@ -101,7 +98,7 @@ export class LifeManagerService extends Service {
   capabilityDescription =
     "Hosts Life Manager capabilities inside the existing Eliza runtime.";
   static async start(runtime: IAgentRuntime): Promise<LifeManagerService> {
-    registerAlpacaPaperLoop(runtime);
+    registerMoneyLoop(runtime);
     return new LifeManagerService(runtime);
   }
   async persistGoalWorkItem(
@@ -180,7 +177,7 @@ export class LifeManagerService extends Service {
     return readGoalReflection(db, input);
   }
   async stop(): Promise<void> {
-    unregisterAlpacaPaperLoop(this.runtime);
+    unregisterMoneyLoop(this.runtime);
   }
 }
 
@@ -246,8 +243,8 @@ export const lifeManagerPlugin: Plugin = {
   providers: [lifeManagerHealthProvider],
   routes: alpacaPaperAccountRoutes,
   schema: lifeManagerDbSchema,
-  init: async (_config, runtime) => registerAlpacaPaperLoop(runtime),
-  dispose: async (runtime) => unregisterAlpacaPaperLoop(runtime),
+  init: async (_config, runtime) => registerMoneyLoop(runtime),
+  dispose: async (runtime) => unregisterMoneyLoop(runtime),
 };
 
 export default lifeManagerPlugin;
