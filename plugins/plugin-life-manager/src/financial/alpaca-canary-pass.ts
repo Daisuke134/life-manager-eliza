@@ -101,6 +101,13 @@ type StoredIntent = {
   readonly inputRefs: unknown;
 };
 
+function openingOrderIntent<T extends { inputRefs: unknown }>(intents: T[]) {
+  return intents.find(({ inputRefs }) => {
+    const request = (inputRefs as { canaryRequest?: CanaryRequest } | null)?.canaryRequest;
+    return request?.order.legs.every(({ positionIntent }) => positionIntent.endsWith("_to_open")) === true;
+  });
+}
+
 async function blockReconciliation(db: Database, intentId: string) {
   await db.update(effectIntentsTable).set({
     status: "reconciliation_blocked",
@@ -349,12 +356,12 @@ export async function closeAlpacaCanaryCampaign(
   if (!buy || !sell) throw new Error("Alpaca campaign exit quote is incomplete");
   const credit = Math.round((buy.bid - sell.ask) * 100) / 100;
   if (!(credit > 0)) throw new Error("Alpaca campaign exit credit is invalid");
-  const entry = (await db.select({ inputRefs: effectIntentsTable.inputRefs }).from(effectIntentsTable).where(and(
+  const entry = openingOrderIntent(await db.select({ inputRefs: effectIntentsTable.inputRefs }).from(effectIntentsTable).where(and(
     eq(effectIntentsTable.agentId, scope.agentId),
     eq(effectIntentsTable.entityId, scope.entityId),
     eq(effectIntentsTable.workItemId, scope.workItemId),
     eq(effectIntentsTable.effectClass, "broker.paper.order"),
-  )).limit(1))[0]?.inputRefs as { canaryRequest?: CanaryRequest } | undefined;
+  )))?.inputRefs as { canaryRequest?: CanaryRequest } | undefined;
   if (!entry?.canaryRequest) throw new Error("Alpaca campaign entry receipt is unavailable");
   const exitRequest: CanaryRequest = {
     ...entry.canaryRequest,
@@ -411,7 +418,7 @@ export async function runAlpacaCanaryPass(
   const fingerprint = requestFingerprint(request.candidates);
   const scope = await ensureWorkItem(runtime, db, request.runRef, fingerprint, now);
   const provider = createLocalAlpacaCliProvider();
-  const existingIntent = (await db.select({
+  const existingIntent = openingOrderIntent(await db.select({
     id: effectIntentsTable.id,
     status: effectIntentsTable.status,
     effectKey: effectIntentsTable.effectKey,
@@ -421,7 +428,7 @@ export async function runAlpacaCanaryPass(
     eq(effectIntentsTable.entityId, scope.entityId),
     eq(effectIntentsTable.workItemId, scope.workItemId),
     eq(effectIntentsTable.effectClass, "broker.paper.order"),
-  )).limit(1))[0];
+  )));
   if (existingIntent) {
     const result = await executeStoredIntent(db, existingIntent, provider);
     await persistOutcome(db, scope, existingIntent, result);
@@ -529,8 +536,7 @@ export async function runAlpacaCanaryPass(
   }).from(effectIntentsTable).where(and(
     eq(effectIntentsTable.agentId, scope.agentId),
     eq(effectIntentsTable.entityId, scope.entityId),
-    eq(effectIntentsTable.workItemId, scope.workItemId),
-    eq(effectIntentsTable.effectClass, "broker.paper.order"),
+    eq(effectIntentsTable.effectKey, intent.effectKey),
   )).limit(1))[0];
   if (!storedIntent) throw new Error("Alpaca canary effect intent persistence failed");
   const result = await executeStoredIntent(db, storedIntent, provider);
