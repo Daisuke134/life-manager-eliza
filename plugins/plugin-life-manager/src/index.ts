@@ -36,6 +36,10 @@ import { alpacaBootstrapSecretFillAction } from "./financial/alpaca-bootstrap-se
 import { alpacaPaperAccountFormAction } from "./financial/alpaca-paper-account-form.js";
 import { alpacaPaperAccountRoutes } from "./financial/alpaca-paper-account-routes.js";
 import {
+  registerAlpacaPaperLoop,
+  unregisterAlpacaPaperLoop,
+} from "./financial/alpaca-loop.js";
+import {
   decideAndPersistAlpacaTrade,
   type AlpacaDecisionRequest,
   type AlpacaTradingDecision,
@@ -210,7 +214,7 @@ export const lifeManagerPlugin: Plugin = {
   name: "@elizaos/plugin-life-manager",
   description:
     "Life Manager general-agent capabilities hosted by the existing Eliza runtime.",
-  dependencies: ["@elizaos/plugin-sql"],
+  dependencies: ["@elizaos/plugin-sql", "@elizaos/plugin-scheduling"],
   services: [
     LifeManagerMigrationService,
     ProviderBridgeService,
@@ -229,6 +233,8 @@ export const lifeManagerPlugin: Plugin = {
   providers: [lifeManagerHealthProvider],
   routes: alpacaPaperAccountRoutes,
   schema: lifeManagerDbSchema,
+  init: async (_config, runtime) => registerAlpacaPaperLoop(runtime),
+  dispose: async (runtime) => unregisterAlpacaPaperLoop(runtime),
 };
 
 export default lifeManagerPlugin;
