@@ -52,6 +52,11 @@ export interface AlpacaLocalAdapterOptions {
   readonly execFile?: AlpacaExecFile;
 }
 
+export interface AlpacaApiCredentials {
+  readonly keyId: string;
+  readonly secret: string;
+}
+
 export interface AlpacaMarketObservation {
   readonly paper: true;
   readonly accountStatus: "ACTIVE" | "UNKNOWN";
@@ -275,6 +280,19 @@ function privateHandle(path: string): PrivateHandle | undefined {
       ),
     ) as PrivateHandle,
   );
+}
+
+export function readLocalAlpacaApiCredentials(
+  options: Pick<AlpacaLocalAdapterOptions, "credentialsPath"> = {},
+): AlpacaApiCredentials {
+  const credentialsPath =
+    options.credentialsPath ??
+    join(homedir(), ".local", "share", "anicca", "credentials.json");
+  const handle = privateHandle(credentialsPath);
+  if (!handle?.api_key || !handle.api_secret) {
+    throw new Error("Alpaca paper API credentials are unavailable");
+  }
+  return Object.freeze({ keyId: handle.api_key, secret: handle.api_secret });
 }
 
 function ownerEmail(path: string): string {

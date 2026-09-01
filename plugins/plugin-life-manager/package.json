@@ -26,6 +26,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@alpacahq/alpaca-trade-api": "4.0.1",
     "@elizaos/core": "workspace:*",
     "@elizaos/plugin-scheduling": "workspace:*",
     "drizzle-orm": "0.45.2"

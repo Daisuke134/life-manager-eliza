@@ -51,6 +51,8 @@ import {
 
 export {
   createLocalAlpacaCliProvider,
+  readLocalAlpacaApiCredentials,
+  type AlpacaApiCredentials,
   type AlpacaCliProvider,
   type AlpacaDefinedRiskOrderRequest,
   type AlpacaMarketObservation,
@@ -58,6 +60,10 @@ export {
   type AlpacaPaperOrderReadback,
   type AlpacaOptionSnapshot,
 } from "./financial/alpaca-local-adapter.js";
+export {
+  createAlpacaReadOnlyMarketData,
+  type AlpacaReadOnlyMarketData,
+} from "./financial/alpaca-market-data.js";
 export {
   ALPACA_RISK_POLICY,
   evaluateAlpacaRisk,
