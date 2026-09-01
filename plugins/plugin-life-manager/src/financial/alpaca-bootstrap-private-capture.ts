@@ -52,6 +52,12 @@ function normalizeCaptured(
   if (field === "totp_secret" && value.startsWith("otpauth://")) {
     value = new URL(value).searchParams.get("secret") ?? "";
   }
+  if (field === "account_id") {
+    value = value.replace(/^Paper Account\s+/u, "");
+    if (!/^PA[A-Z0-9]+$/u.test(value)) {
+      throw new Error("Alpaca paper account ID is invalid");
+    }
+  }
   if (field === "totp_secret") {
     value = value.replace(/[\s-]/gu, "").toUpperCase();
     if (!/^[A-Z2-7]{16,128}$/u.test(value)) {
