@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AlpacaCliProvider, AlpacaPaperOrderReadback } from "./alpaca-local-adapter.js";
-import { runAlpacaPaperCanary, sealAlpacaPaperCanary } from "./alpaca-paper-canary.js";
+import { reconcileAlpacaPaperCanaryReadback, runAlpacaPaperCanary, sealAlpacaPaperCanary } from "./alpaca-paper-canary.js";
 
 const request = {
   workItemRef: "life-manager-work-item://a08",
@@ -41,6 +41,11 @@ describe("Alpaca exactly-once paper canary", () => {
     expect(replay).toMatchObject({ effect_started: false, replayed: true, receipt: { outcome: "noop" } });
     expect(submit).toHaveBeenCalledTimes(1);
     expect(intent.clientOrderId).toMatch(/^lm-a08-[a-f0-9]{40}$/);
+    expect(reconcileAlpacaPaperCanaryReadback(request, stored!)).toMatchObject({
+      effect_started: false,
+      replayed: true,
+      receipt: { outcome: "noop" },
+    });
   });
 
   it("fails closed for an unknown broker order status", async () => {
