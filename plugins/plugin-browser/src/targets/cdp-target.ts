@@ -181,13 +181,17 @@ async function execute(
           return nodes.slice(0, 200).map((element, index) => {
             const node = element as HTMLElement;
             const id = node.id ? `#${CSS.escape(node.id)}` : "";
+            const testId = node.getAttribute("data-testid");
+            const tested = testId
+              ? `${node.tagName.toLowerCase()}[data-testid=${JSON.stringify(testId)}]`
+              : "";
             const name = node.getAttribute("name");
             const named = name
               ? `${node.tagName.toLowerCase()}[name=${JSON.stringify(name)}]`
               : "";
             return {
               ref: `cdp_${index}`,
-              selector: id || named || path(node),
+              selector: id || tested || named || path(node),
               tag: node.tagName.toLowerCase(),
               text: (node.innerText || node.getAttribute("aria-label") || "")
                 .trim()

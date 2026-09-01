@@ -2,14 +2,16 @@
 import type { Action, ActionResult, IAgentRuntime } from "@elizaos/core";
 
 interface Parameters {
-  readonly operation?: "inspect" | "click";
+  readonly operation?: "inspect" | "click" | "fill";
   readonly selector?: string;
+  readonly value?: string;
 }
 
 interface BrowserServiceShape {
   execute(command: {
-    subaction: "inspect" | "realistic-click";
+    subaction: "inspect" | "realistic-click" | "realistic-fill";
     selector?: string;
+    value?: string;
   }): Promise<{
     elements?: Array<{
       ref?: string;
@@ -47,11 +49,21 @@ export async function runAlpacaBootstrapBrowser(
     };
   }
   const selector = parameters.selector?.trim();
-  if (
-    parameters.operation !== "click" ||
-    !selector ||
-    selector.length > 2_048
-  ) {
+  if (!selector || selector.length > 2_048) {
+    return { success: false, text: "Alpaca browser parameters are invalid." };
+  }
+  if (parameters.operation === "fill") {
+    if (typeof parameters.value !== "string" || parameters.value.length > 1_000) {
+      return { success: false, text: "Alpaca browser fill parameters are invalid." };
+    }
+    await browser.execute({
+      subaction: "realistic-fill",
+      selector,
+      value: parameters.value,
+    });
+    return { success: true, text: "Filled the observed Alpaca control." };
+  }
+  if (parameters.operation !== "click") {
     return { success: false, text: "Alpaca browser parameters are invalid." };
   }
   await browser.execute({ subaction: "realistic-click", selector });
@@ -60,13 +72,17 @@ export async function runAlpacaBootstrapBrowser(
 
 export const alpacaBootstrapBrowserAction: Action = {
   name: "ALPACA_BOOTSTRAP_BROWSER",
-  similes: ["INSPECT_ALPACA_BOOTSTRAP", "CLICK_ALPACA_BOOTSTRAP"],
+  similes: [
+    "INSPECT_ALPACA_BOOTSTRAP",
+    "CLICK_ALPACA_BOOTSTRAP",
+    "FILL_ALPACA_BOOTSTRAP",
+  ],
   description:
-    "Inspect safe controls or click one previously observed selector on the active Alpaca bootstrap page through BrowserService.",
-  descriptionCompressed: "Inspect/click active Alpaca bootstrap page.",
+    "Inspect safe controls, click, or fill one previously observed selector on the active Alpaca bootstrap page through BrowserService.",
+  descriptionCompressed: "Inspect/click/fill active Alpaca bootstrap page.",
   contexts: ["finance", "browser", "automation"],
   routingHint:
-    "inspect or click the active Alpaca signup, dashboard, account menu, MFA, or API-key page while completing Alpaca bootstrap -> ALPACA_BOOTSTRAP_BROWSER",
+    "inspect, click, or fill the active Alpaca signup, dashboard, account menu, MFA, or API-key page while completing Alpaca bootstrap -> ALPACA_BOOTSTRAP_BROWSER",
   roleGate: { minRole: "OWNER" },
   validate: async (runtime) => runtime.getService("browser") !== null,
   handler: async (runtime, _message, _state, options) => {
@@ -79,13 +95,19 @@ export const alpacaBootstrapBrowserAction: Action = {
   parameters: [
     {
       name: "operation",
-      description: "Inspect controls or click an already-observed selector.",
+      description: "Inspect controls, click, or fill an already-observed selector.",
       required: true,
-      schema: { type: "string", enum: ["inspect", "click"] },
+      schema: { type: "string", enum: ["inspect", "click", "fill"] },
     },
     {
       name: "selector",
       description: "Exact selector from the immediately preceding inspect result.",
+      required: false,
+      schema: { type: "string" },
+    },
+    {
+      name: "value",
+      description: "Non-secret value for a previously observed input when operation is fill.",
       required: false,
       schema: { type: "string" },
     },
