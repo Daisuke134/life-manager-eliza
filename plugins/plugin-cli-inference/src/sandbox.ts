@@ -20,6 +20,7 @@ import { toWellFormedUnicode, truncateWellFormed } from "@elizaos/core";
 const SAFE_ENV_KEYS: ReadonlySet<string> = new Set([
   "PATH",
   "HOME",
+  "CODEX_HOME",
   "TMPDIR",
   "LANG",
   "LC_ALL",
