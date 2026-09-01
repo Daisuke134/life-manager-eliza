@@ -91,6 +91,34 @@ export async function advanceAlpacaBootstrapCheckpoint(
   return result;
 }
 
+export async function setAlpacaBootstrapCheckpointPhase(
+  runtime: CheckpointRuntime,
+  phase: "SIGNUP" | "VERIFY",
+): Promise<void> {
+  const tasks = await runtime.getTasks({
+    tags: [...TASK_TAGS],
+    agentIds: [runtime.agentId],
+  });
+  if (tasks.length !== 1 || !tasks[0]?.id) {
+    throw new Error("Alpaca bootstrap checkpoint is unavailable");
+  }
+  const current = readCheckpoint(tasks[0]);
+  await runtime.updateTask(tasks[0].id, {
+    metadata: {
+      ...tasks[0].metadata,
+      values: {
+        ...tasks[0].metadata?.values,
+        alpacaBootstrap: {
+          checkpoint: { ...current, phase },
+          phase: "BOOTSTRAP_REQUIRED",
+          nextAction:
+            phase === "VERIFY" ? "CONFIGURE_MFA" : "CREATE_PAPER_ACCOUNT",
+        },
+      },
+    },
+  });
+}
+
 interface AlpacaBootstrapService {
   runLocalAlpacaBootstrap(
     checkpoint: AlpacaBootstrapCheckpoint,

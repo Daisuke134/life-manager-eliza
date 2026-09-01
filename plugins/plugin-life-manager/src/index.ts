@@ -26,6 +26,7 @@ import {
   runAlpacaBootstrap as runAlpacaBootstrapOperation,
 } from "./financial/alpaca-bootstrap.js";
 import { alpacaBootstrapAction } from "./financial/alpaca-bootstrap-action.js";
+import { alpacaBootstrapEmailVerifyAction } from "./financial/alpaca-bootstrap-email-verify.js";
 import { alpacaBootstrapSecretFillAction } from "./financial/alpaca-bootstrap-secret-fill.js";
 import {
   type AlpacaLocalAdapterOptions,
@@ -172,6 +173,7 @@ export const lifeManagerPlugin: Plugin = {
   actions: [
     lifeManagerHealthAction,
     alpacaBootstrapAction,
+    alpacaBootstrapEmailVerifyAction,
     alpacaBootstrapSecretFillAction,
   ],
   providers: [lifeManagerHealthProvider],
