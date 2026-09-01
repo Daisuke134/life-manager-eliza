@@ -6,6 +6,7 @@ interface Parameters {
     | "open_form"
     | "accept_cookies"
     | "select_life_manager"
+    | "generate_keys"
     | "nickname"
     | "funds"
     | "submit";
@@ -58,6 +59,17 @@ export async function fillAlpacaPaperAccountForm(
       success: true,
       text: "Selected the Life Manager paper account.",
       data: { field, selected: true },
+    };
+  }
+  if (field === "generate_keys") {
+    await browser.execute({
+      subaction: "click",
+      selector: "div:has(input[readonly]) + button.w-full",
+    });
+    return {
+      success: true,
+      text: "Generated keys for the selected Life Manager paper account.",
+      data: { field, generated: true },
     };
   }
   if (field === "open_switcher" || field === "open_form") {
@@ -136,6 +148,7 @@ export const alpacaPaperAccountFormAction: Action = {
           "open_form",
           "accept_cookies",
           "select_life_manager",
+          "generate_keys",
           "nickname",
           "funds",
           "submit",
