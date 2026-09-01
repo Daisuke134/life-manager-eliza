@@ -84,6 +84,11 @@ import {
 import { LifeManagerMigrationService } from "./services/migration.js";
 import { ProviderBridgeService } from "./services/provider-bridge.js";
 import {
+  admitProviderEffect,
+  type ProviderEffectAdmission,
+  type ProviderEffectAdmissionRequest,
+} from "./provider-admission.js";
+import {
   decideSpecialistStep as decideSpecialistStepOperation,
   type SpecialistDecision,
   type SpecialistDecisionRequest,
@@ -140,6 +145,11 @@ export class LifeManagerService extends Service {
     dependencies: EffectReceiptKernelDependencies,
   ): Promise<EffectReceiptKernelResult> {
     return runEffectReceiptKernelOperation(request, dependencies);
+  }
+  admitProviderEffect(
+    request: ProviderEffectAdmissionRequest,
+  ): ProviderEffectAdmission {
+    return admitProviderEffect(request);
   }
   async runAlpacaBootstrap(
     checkpoint: AlpacaBootstrapCheckpoint,
