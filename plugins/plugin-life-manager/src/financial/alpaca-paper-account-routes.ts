@@ -40,11 +40,14 @@ export const alpacaPaperAccountRoutes: Route[] = [
           body: result,
         };
       } catch (error) {
+        const raw = error && typeof error === "object" && "lastRawResponse" in error &&
+          typeof error.lastRawResponse === "string" ? error.lastRawResponse.slice(0, 500) : undefined;
         return {
           status: 409,
           body: {
             error: "Alpaca paper canary failed safely",
             reason: error instanceof Error ? error.message : "Unknown canary failure",
+            ...(raw !== undefined ? { modelOutputPreview: raw } : {}),
           },
         };
       }
