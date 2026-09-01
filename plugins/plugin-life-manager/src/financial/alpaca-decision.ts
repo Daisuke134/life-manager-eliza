@@ -186,6 +186,7 @@ export async function decideAndPersistAlpacaTrade(
     request.evidenceRefs,
     result.attempts,
   );
+  const { attempts, ...decisionPayload } = decision;
   return db.transaction(async (tx) => {
     const effects = await tx
       .select({ id: effectIntentsTable.id })
@@ -206,8 +207,8 @@ export async function decideAndPersistAlpacaTrade(
         agentId: request.agentId,
         entityId: request.entityId,
         workItemId: request.workItemId,
-        decision,
-        modelAttempts: decision.attempts,
+        decision: decisionPayload,
+        modelAttempts: attempts,
       })
       .onConflictDoNothing()
       .returning();
