@@ -180,6 +180,39 @@ async function persistOutcome(db: Database, scope: Scope, intent: StoredIntent, 
   }).onConflictDoNothing();
 }
 
+async function persistNoEffectOutcome(
+  db: Database,
+  scope: Scope,
+  kind: "NO_TRADE" | "RISK_REJECTED",
+  receipt: Record<string, unknown>,
+) {
+  const effectKey = `alpaca-paper-no-effect:${kind.toLowerCase()}:${scope.workItemId}`;
+  await db.insert(effectIntentsTable).values({
+    agentId: scope.agentId,
+    entityId: scope.entityId,
+    workItemId: scope.workItemId,
+    effectClass: "broker.paper.no_effect",
+    effectKey,
+    inputRefs: { kind, effectStarted: false },
+    status: "applied",
+  }).onConflictDoNothing();
+  const intent = (await db.select({ id: effectIntentsTable.id }).from(effectIntentsTable).where(and(
+    eq(effectIntentsTable.agentId, scope.agentId),
+    eq(effectIntentsTable.entityId, scope.entityId),
+    eq(effectIntentsTable.effectKey, effectKey),
+  )).limit(1))[0];
+  if (!intent) throw new Error("Alpaca no-effect intent persistence failed");
+  await db.insert(outcomeReceiptsTable).values({
+    agentId: scope.agentId,
+    entityId: scope.entityId,
+    effectIntentId: intent.id,
+    attempt: 0,
+    outcome: kind.toLowerCase(),
+    effectKey,
+    receipt: { ...receipt, kind, effectStarted: false },
+  }).onConflictDoNothing();
+}
+
 function reconcileCampaignSnapshot(
   snapshot: AlpacaCampaignSnapshot,
   expectedSymbols: readonly string[],
@@ -426,7 +459,10 @@ export async function runAlpacaCanaryPass(
     evidenceRefs,
     candidateRefs: offered.map(({ candidateRef }) => candidateRef),
   });
-  if (decision.status === "NO_TRADE") return Object.freeze({ status: "NO_TRADE", decision });
+  if (decision.status === "NO_TRADE") {
+    await persistNoEffectOutcome(db, scope, "NO_TRADE", { decision });
+    return Object.freeze({ status: "NO_TRADE", decision });
+  }
   const selected = offered.find(({ candidateRef }) => candidateRef === decision.candidateRef);
   if (!selected) throw new Error("Alpaca canary selected candidate is unavailable");
   const account = await provider.observe("SPY");
@@ -456,7 +492,10 @@ export async function runAlpacaCanaryPass(
     greeksAtMs: Math.min(Date.parse(selected.buy.observedAt), Date.parse(selected.sell.observedAt)),
     dte: selected.dte,
   });
-  if (!risk.allowed) return Object.freeze({ status: "RISK_REJECTED", decision, risk });
+  if (!risk.allowed) {
+    await persistNoEffectOutcome(db, scope, "RISK_REJECTED", { decision, risk });
+    return Object.freeze({ status: "RISK_REJECTED", decision, risk });
+  }
   const canaryRequest = {
     workItemRef: `life-manager-work-item://${scope.workItemId}`,
     decisionReceiptRef: `life-manager-decision://${scope.workItemId}`,
