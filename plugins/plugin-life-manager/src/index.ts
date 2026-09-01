@@ -34,6 +34,7 @@ import {
 } from "./financial/alpaca-bootstrap-private-capture.js";
 import { alpacaBootstrapSecretFillAction } from "./financial/alpaca-bootstrap-secret-fill.js";
 import { alpacaPaperAccountFormAction } from "./financial/alpaca-paper-account-form.js";
+import { alpacaPaperAccountRoutes } from "./financial/alpaca-paper-account-routes.js";
 import {
   type AlpacaLocalAdapterOptions,
   createLocalAlpacaBootstrapDependencies,
@@ -187,6 +188,7 @@ export const lifeManagerPlugin: Plugin = {
     alpacaPaperAccountFormAction,
   ],
   providers: [lifeManagerHealthProvider],
+  routes: alpacaPaperAccountRoutes,
   schema: lifeManagerDbSchema,
 };
 
