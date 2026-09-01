@@ -171,6 +171,7 @@ export async function decideAndPersistAlpacaTrade(
   };
   const prompt = [
     "Decide whether this paper account should take one defined-risk options trade now.",
+    `Return only one JSON object shaped as ${JSON.stringify({ action: ALPACA_TRADING_DECISION, params: Object.fromEntries(fields.map((field) => [field, `<${field}>`])) })}.`,
     "Prefer NO_TRADE when evidence is insufficient. For NO_TRADE set maxLossUsd to 0. Do not execute or claim profit.",
     `Objective: ${request.objective}`,
     `Observation: ${JSON.stringify(request.observation)}`,
@@ -190,7 +191,7 @@ export async function decideAndPersistAlpacaTrade(
       signal: request.signal,
     },
     schema,
-    maxRerolls: 0,
+    maxRerolls: 1,
     validateBeforeReturn: true,
   });
   const envelope = result.parsed as Record<string, unknown>;
