@@ -11,7 +11,14 @@ export const alpacaPaperAccountRoutes: Route[] = [
       const field = body?.field;
       if (
         !(
-          ["open_switcher", "open_form", "nickname", "funds", "submit"] as unknown[]
+          [
+            "open_switcher",
+            "open_form",
+            "accept_cookies",
+            "nickname",
+            "funds",
+            "submit",
+          ] as unknown[]
         ).includes(field)
       ) {
         return { status: 400, body: { error: "field is invalid" } };
@@ -21,6 +28,7 @@ export const alpacaPaperAccountRoutes: Route[] = [
         field as
           | "open_switcher"
           | "open_form"
+          | "accept_cookies"
           | "nickname"
           | "funds"
           | "submit",

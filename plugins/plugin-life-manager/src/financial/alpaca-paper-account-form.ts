@@ -4,6 +4,7 @@ interface Parameters {
   readonly field?:
     | "open_switcher"
     | "open_form"
+    | "accept_cookies"
     | "nickname"
     | "funds"
     | "submit";
@@ -34,6 +35,17 @@ export async function fillAlpacaPaperAccountForm(
 ): Promise<ActionResult> {
   const browser = runtime.getService("browser") as unknown as BrowserServiceShape | null;
   if (!browser) return { success: false, text: "BrowserService is unavailable." };
+  if (field === "accept_cookies") {
+    await browser.execute({
+      subaction: "realistic-click",
+      selector: "#rcc-confirm-button",
+    });
+    return {
+      success: true,
+      text: "Accepted the Alpaca cookie notice.",
+      data: { field, accepted: true },
+    };
+  }
   if (field === "open_switcher" || field === "open_form") {
     await browser.execute({
       subaction: "realistic-click",
@@ -105,7 +117,14 @@ export const alpacaPaperAccountFormAction: Action = {
       required: true,
       schema: {
         type: "string",
-        enum: ["open_switcher", "open_form", "nickname", "funds", "submit"],
+        enum: [
+          "open_switcher",
+          "open_form",
+          "accept_cookies",
+          "nickname",
+          "funds",
+          "submit",
+        ],
       },
     },
   ],
