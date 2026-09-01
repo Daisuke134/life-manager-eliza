@@ -26,6 +26,10 @@ import {
   runAlpacaBootstrap as runAlpacaBootstrapOperation,
 } from "./financial/alpaca-bootstrap.js";
 import {
+  type AlpacaLocalAdapterOptions,
+  createLocalAlpacaBootstrapDependencies,
+} from "./financial/alpaca-local-adapter.js";
+import {
   type GoalReflection,
   type GoalReflectionDatabase,
   type GoalReflectionReadInput,
@@ -88,6 +92,15 @@ export class LifeManagerService extends Service {
     dependencies: AlpacaBootstrapDependencies,
   ): Promise<AlpacaBootstrapResult> {
     return runAlpacaBootstrapOperation(checkpoint, dependencies);
+  }
+  async runLocalAlpacaBootstrap(
+    checkpoint: AlpacaBootstrapCheckpoint,
+    options: AlpacaLocalAdapterOptions = {},
+  ): Promise<AlpacaBootstrapResult> {
+    return runAlpacaBootstrapOperation(
+      checkpoint,
+      createLocalAlpacaBootstrapDependencies(options),
+    );
   }
   async reflectGoal(input: GoalReflectionReadInput): Promise<GoalReflection> {
     const db = this.runtime.db as unknown as GoalReflectionDatabase | undefined;
