@@ -165,6 +165,7 @@ export const alpacaBootstrapPrivateCaptureAction: Action = {
   description:
     "Capture an Alpaca TOTP/API/recovery/account value from BrowserService directly into the private SSOT.",
   descriptionCompressed: "Privately capture Alpaca setup material.",
+  contexts: ["finance", "automation"],
   roleGate: { minRole: "OWNER" },
   validate: async (runtime) => runtime.getService("browser") !== null,
   handler: async (runtime, _message, _state, options) => {
@@ -229,6 +230,7 @@ export const alpacaBootstrapTotpFillAction: Action = {
   name: "ALPACA_BOOTSTRAP_TOTP_FILL",
   description: "Generate the current Alpaca MFA code privately and fill it through BrowserService.",
   descriptionCompressed: "Privately fill Alpaca TOTP.",
+  contexts: ["finance", "automation"],
   roleGate: { minRole: "OWNER" },
   validate: async (runtime) => runtime.getService("browser") !== null,
   handler: async (runtime, _message, _state, options) => {

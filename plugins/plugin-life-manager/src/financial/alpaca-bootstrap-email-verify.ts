@@ -178,6 +178,7 @@ export const alpacaBootstrapEmailVerifyAction: Action = {
   description:
     "Read the latest Alpaca verification email without sending mail and open its private allowlisted link.",
   descriptionCompressed: "Open the private Alpaca verification email link.",
+  contexts: ["finance", "automation"],
   roleGate: { minRole: "OWNER" },
   validate: async (runtime) => runtime.getService("browser") !== null,
   handler: async (runtime, _message, _state, options) => {

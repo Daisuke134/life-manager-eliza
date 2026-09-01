@@ -10,6 +10,7 @@ import type {
   UUID,
 } from "@elizaos/core";
 import type {
+  AlpacaBootstrapAction as AlpacaBootstrapNextAction,
   AlpacaBootstrapCheckpoint,
   AlpacaBootstrapResult,
 } from "./alpaca-bootstrap.js";
@@ -37,6 +38,23 @@ interface CheckpointRuntime {
 type BootstrapRun = (
   checkpoint: AlpacaBootstrapCheckpoint,
 ) => Promise<AlpacaBootstrapResult>;
+
+const NEXT_STEP: Record<AlpacaBootstrapNextAction, string> = {
+  CREATE_PAPER_ACCOUNT:
+    "Use BROWSER to open https://app.alpaca.markets/signup, inspect the page, use ALPACA_BOOTSTRAP_SECRET_FILL for email/password, complete only non-KYC fields, submit, then call ALPACA_BOOTSTRAP again. Never use Google login or bypass CAPTCHA, KYC, or legal consent.",
+  VERIFY_EMAIL:
+    "Call ALPACA_BOOTSTRAP_EMAIL_VERIFY, then call ALPACA_BOOTSTRAP again.",
+  CONFIGURE_MFA:
+    "Use BROWSER to reach Alpaca MFA setup, ALPACA_BOOTSTRAP_PRIVATE_CAPTURE for totp_secret and recovery_code, ALPACA_BOOTSTRAP_TOTP_FILL to confirm, then call ALPACA_BOOTSTRAP again.",
+  BIND_API_KEYS:
+    "Use BROWSER to create paper API keys, ALPACA_BOOTSTRAP_PRIVATE_CAPTURE for api_key, api_secret, and account_id, then call ALPACA_BOOTSTRAP again.",
+  RETRY_BOOTSTRAP: "Call ALPACA_BOOTSTRAP again without creating a duplicate account.",
+  RETRY_CLI_READBACK: "Call ALPACA_BOOTSTRAP again; do not use a REST or SDK fallback.",
+  ACCOUNT_OWNER_ACTION:
+    "Stop and report the exact provider-required CAPTCHA, KYC, consent, or owner action.",
+  RUN_TRADING_LOOP: "Bootstrap is complete; continue through the pinned Alpaca CLI trading loop.",
+  STOP: "Stop without performing another account or broker effect.",
+};
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -142,6 +160,8 @@ export const alpacaBootstrapAction: Action = {
   description:
     "Advance or verify the resumable Life Manager-owned Alpaca paper-account bootstrap.",
   descriptionCompressed: "Advance Alpaca paper bootstrap.",
+  contexts: ["finance", "automation"],
+  roleGate: { minRole: "OWNER" },
   validate: async (runtime: IAgentRuntime) =>
     runtime.getService("LIFE_MANAGER") !== null,
   handler: async (runtime: IAgentRuntime): Promise<ActionResult> => {
@@ -158,8 +178,11 @@ export const alpacaBootstrapAction: Action = {
       );
       return {
         success: result.phase !== "BLOCKED",
-        text: `Alpaca bootstrap: ${result.phase}; next=${result.nextAction}.`,
-        data: { alpacaBootstrap: result },
+        text: `Alpaca bootstrap: ${result.phase}; next=${result.nextAction}. ${NEXT_STEP[result.nextAction]}`,
+        data: {
+          alpacaBootstrap: result,
+          nextStep: NEXT_STEP[result.nextAction],
+        },
       };
     } catch {
       // error-policy:J1 action boundary returns a redacted failure to the planner.

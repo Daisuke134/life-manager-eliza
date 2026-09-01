@@ -84,6 +84,7 @@ export const alpacaBootstrapSecretFillAction: Action = {
   description:
     "Fill the Alpaca signup email or password from the private SSOT through BrowserService; never provide the value.",
   descriptionCompressed: "Privately fill Alpaca signup email/password.",
+  contexts: ["finance", "automation"],
   roleGate: { minRole: "OWNER" },
   validate: async (runtime) => runtime.getService("browser") !== null,
   handler: async (runtime, _message, _state, options) => {
