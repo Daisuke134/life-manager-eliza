@@ -26,6 +26,7 @@ import {
   runAlpacaBootstrap as runAlpacaBootstrapOperation,
 } from "./financial/alpaca-bootstrap.js";
 import { alpacaBootstrapAction } from "./financial/alpaca-bootstrap-action.js";
+import { alpacaBootstrapSecretFillAction } from "./financial/alpaca-bootstrap-secret-fill.js";
 import {
   type AlpacaLocalAdapterOptions,
   createLocalAlpacaBootstrapDependencies,
@@ -168,7 +169,11 @@ export const lifeManagerPlugin: Plugin = {
     ProviderBridgeService,
     LifeManagerService,
   ],
-  actions: [lifeManagerHealthAction, alpacaBootstrapAction],
+  actions: [
+    lifeManagerHealthAction,
+    alpacaBootstrapAction,
+    alpacaBootstrapSecretFillAction,
+  ],
   providers: [lifeManagerHealthProvider],
   schema: lifeManagerDbSchema,
 };
