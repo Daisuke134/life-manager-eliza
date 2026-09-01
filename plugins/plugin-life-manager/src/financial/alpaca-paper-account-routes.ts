@@ -39,10 +39,13 @@ export const alpacaPaperAccountRoutes: Route[] = [
           status: result.status === "RISK_REJECTED" ? 409 : 200,
           body: result,
         };
-      } catch {
+      } catch (error) {
         return {
           status: 409,
-          body: { error: "Alpaca paper canary failed safely" },
+          body: {
+            error: "Alpaca paper canary failed safely",
+            reason: error instanceof Error ? error.message : "Unknown canary failure",
+          },
         };
       }
     },
