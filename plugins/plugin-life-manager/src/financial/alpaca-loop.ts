@@ -7,7 +7,7 @@ import {
   type ScheduledTaskChannelDispatcherContribution,
   unregisterScheduledTaskChannelDispatcher,
 } from "@elizaos/plugin-scheduling";
-import { runAlpacaCanaryPass } from "./alpaca-canary-pass.js";
+import { closeAlpacaCanaryCampaign, runAlpacaCanaryPass } from "./alpaca-canary-pass.js";
 
 export const ALPACA_LOOP_CHANNEL = "life_manager_alpaca_paper_loop";
 export const ALPACA_LOOP_IDEMPOTENCY_KEY = "life-manager:alpaca-paper-loop:v1";
@@ -34,10 +34,11 @@ export function registerAlpacaPaperLoop(runtime: IAgentRuntime): void {
     channelKey: ALPACA_LOOP_CHANNEL,
     dispatch: async () => {
       const result = await runAlpacaCanaryPass(runtime, reconciliationPass);
+      const exit = await closeAlpacaCanaryCampaign(runtime, reconciliationPass);
       return {
         ok: true,
         channelKey: ALPACA_LOOP_CHANNEL,
-        metadata: { status: result.status },
+        metadata: { status: result.status, exitStatus: exit.status },
       };
     },
   };

@@ -701,7 +701,7 @@ export function createLocalAlpacaCliProvider(
         !Number.isInteger(request.quantity) ||
         request.quantity < 1 ||
         !Number.isFinite(request.limitPrice) ||
-        request.limitPrice <= 0 ||
+        request.limitPrice === 0 ||
         request.legs.length < 2 ||
         request.legs.length > 4
       )
