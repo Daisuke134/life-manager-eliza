@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AlpacaCliProvider, AlpacaPaperOrderReadback } from "./alpaca-local-adapter.js";
-import { reconcileAlpacaPaperCanaryReadback, runAlpacaPaperCanary, sealAlpacaPaperCanary } from "./alpaca-paper-canary.js";
+import { reconcileAlpacaPaperCanaryReadback, runAlpacaPaperCanary, runAlpacaPaperSpotOrder, sealAlpacaPaperCanary, sealAlpacaPaperSpotOrder } from "./alpaca-paper-canary.js";
 
 const request = {
   workItemRef: "life-manager-work-item://a08",
@@ -60,5 +60,36 @@ describe("Alpaca exactly-once paper canary", () => {
 
     await expect(runAlpacaPaperCanary(request, provider)).rejects.toThrow("Effect receipt verification failed");
     expect(provider.submitDefinedRiskOrder).not.toHaveBeenCalled();
+  });
+
+  it("submits a paper spot order once and replays from official readback", async () => {
+    const spotRequest = {
+      workItemRef: "life-manager-work-item://a11",
+      decisionReceiptRef: "life-manager-decision://a11",
+      riskReceiptRef: "life-manager-portfolio-risk://a11",
+      risk: { allowed: true, aggregateMaxLossUsd: 250, reasons: [] },
+      order: { paper: true as const, assetClass: "CRYPTO" as const, symbol: "BTC/USD", notionalUsd: 250 },
+    };
+    const intent = sealAlpacaPaperSpotOrder(spotRequest);
+    let stored: AlpacaPaperOrderReadback | undefined;
+    const submit = vi.fn(async () => {
+      stored = {
+        paper: true, id: "official-spot-1", clientOrderId: intent.clientOrderId,
+        status: "accepted", submittedAt: "2026-09-02T06:30:00Z", filledQuantity: 0,
+      };
+      return stored;
+    });
+    const provider = {
+      findOrderByClientId: vi.fn(async () => stored),
+      submitSpotOrder: submit,
+    } as unknown as AlpacaCliProvider;
+
+    const first = await runAlpacaPaperSpotOrder(spotRequest, provider);
+    const replay = await runAlpacaPaperSpotOrder(spotRequest, provider);
+
+    expect(first).toMatchObject({ effect_started: true, replayed: false, receipt: { outcome: "applied" } });
+    expect(replay).toMatchObject({ effect_started: false, replayed: true, receipt: { outcome: "noop" } });
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(intent.clientOrderId).toMatch(/^lm-a11-[a-f0-9]{40}$/);
   });
 });
