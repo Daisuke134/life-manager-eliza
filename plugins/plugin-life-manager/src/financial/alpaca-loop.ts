@@ -10,7 +10,10 @@ import {
   seedRegisteredTaskPacks,
   unregisterScheduledTaskChannelDispatcher,
 } from "@elizaos/plugin-scheduling";
-import { rankAlpacaPaperCandidates } from "./alpaca-canary-pass.js";
+import {
+  closeAlpacaCanaryCampaign,
+  rankAlpacaPaperCandidates,
+} from "./alpaca-canary-pass.js";
 import { createLocalAlpacaCliProvider } from "./alpaca-local-adapter.js";
 
 export const ALPACA_LOOP_CHANNEL = "life_manager_alpaca_paper_loop";
@@ -20,9 +23,21 @@ const installed = new WeakMap<
   IAgentRuntime,
   ScheduledTaskChannelDispatcherContribution
 >();
+const reconciliationPass = {
+  runRef: "a08-canary-2",
+  candidates: [
+    {
+      candidateRef: "alpaca-option-spread://SPY/2026-09-08/769C-770C",
+      structure: "bull_call_debit_spread" as const,
+      buySymbol: "SPY260908C00769000",
+      sellSymbol: "SPY260908C00770000",
+    },
+  ],
+};
 
 async function reportAlpacaPass(
   ranking: Awaited<ReturnType<typeof rankAlpacaPaperCandidates>>,
+  exitStatus: Awaited<ReturnType<typeof closeAlpacaCanaryCampaign>>["status"],
 ): Promise<string> {
   const target =
     process.env.LM_CONNECTOR_TELEGRAM_TARGET ??
@@ -50,7 +65,7 @@ async function reportAlpacaPass(
     : "なし";
   const message = [
     "Life Manager Alpacaペーパーループの5分レポートです。",
-    `判断: ${decision}。ゲート結果: ${ranking.status}。`,
+    `判断: ${decision}。ゲート結果: ${ranking.status}。SPY決済: ${exitStatus}。`,
     effect,
     `口座資産: $${snapshot.equity.toFixed(2)}、現金: $${snapshot.cash.toFixed(2)}。`,
     `開始時$100,000からの損益: ${accountPnlUsd >= 0 ? "+" : ""}$${accountPnlUsd.toFixed(2)}。`,
@@ -123,12 +138,17 @@ export function registerAlpacaPaperLoop(runtime: IAgentRuntime): void {
   const contribution: ScheduledTaskChannelDispatcherContribution = {
     channelKey: ALPACA_LOOP_CHANNEL,
     dispatch: async () => {
+      const exit = await closeAlpacaCanaryCampaign(runtime, reconciliationPass);
       const ranking = await rankAlpacaPaperCandidates(runtime);
-      const telegramMessageId = await reportAlpacaPass(ranking);
+      const telegramMessageId = await reportAlpacaPass(ranking, exit.status);
       return {
         ok: true,
         channelKey: ALPACA_LOOP_CHANNEL,
-        metadata: { rankingStatus: ranking.status, telegramMessageId },
+        metadata: {
+          exitStatus: exit.status,
+          rankingStatus: ranking.status,
+          telegramMessageId,
+        },
       };
     },
   };
