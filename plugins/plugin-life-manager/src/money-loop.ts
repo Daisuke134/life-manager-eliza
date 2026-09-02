@@ -1,4 +1,11 @@
-import type { IAgentRuntime } from "@elizaos/core";
+import {
+  ChannelType,
+  createMessageMemory,
+  type IAgentRuntime,
+  MESSAGE_SOURCE_TRIGGER_PROMPT,
+  registerRuntimeManagedInternalActor,
+  stringToUuid,
+} from "@elizaos/core";
 import {
   registerDefaultTaskPack,
   registerScheduledTaskChannelDispatcher,
@@ -7,14 +14,11 @@ import {
   type ScheduledTaskChannelDispatcherContribution,
   unregisterScheduledTaskChannelDispatcher,
 } from "@elizaos/plugin-scheduling";
-import { decideSpecialistStep } from "./specialist-decision.js";
-import {
-  PROVIDER_BRIDGE_SERVICE_TYPE,
-  type ProviderBridgeService,
-} from "./services/provider-bridge.js";
 
 export const MONEY_LOOP_CHANNEL = "life_manager_general_money_loop";
 export const MONEY_LOOP_IDEMPOTENCY_KEY = "life-manager:general-money-loop:v1";
+const MONEY_LOOP_PROMPT =
+  "Advance the active economic child Goal toward verified banked net. Use the authenticated general browser as your eyes and hands: observe the live marketplace, choose every fresh positive-EV opportunity you can truthfully fulfill, and use browser actions yourself to apply. Do not reject work merely because an exact Skill or prior portfolio item is missing. Never invent qualifications, bypass provider rules, duplicate an application, or call a marketplace-specific workflow. After each decision, report the specific opportunity and natural-language reason; count success only after official provider readback returns its application receipt. Continue within this bounded wake until no fresh opportunity remains, then preserve the checkpoint for the next wake.";
 
 const installed = new WeakMap<
   IAgentRuntime,
@@ -26,50 +30,48 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
   const contribution: ScheduledTaskChannelDispatcherContribution = {
     channelKey: MONEY_LOOP_CHANNEL,
     dispatch: async (record) => {
-      const toolRef = process.env.LIFE_MANAGER_MONEY_TOOL_REF?.trim();
-      const inputRef = process.env.LIFE_MANAGER_MONEY_INPUT_REF?.trim();
-      if (!toolRef || !inputRef) {
-        throw new Error("Active economic tool reference is unavailable");
-      }
-      const decision = await decideSpecialistStep(runtime, {
-        workItemRef: `money-wake:${record.taskId}:${record.firedAtIso}`,
-        objective:
-          "Advance the active economic child goal toward verified banked net while respecting authorization, provider rules, risk, and delivery capacity.",
-        candidates: [
-          {
-            candidateRef: "active-economic-child-goal",
-            summary:
-              "The highest-positive-EV authorized child goal available from durable Life Manager state.",
-          },
-        ],
-        tools: [
-          {
-            toolRef: "provider-bridge:execute-active-economic-loop",
-            description:
-              "Execute the active marketplace loop through the existing opaque provider bridge; the tool owns official readback and exactly-once state.",
-          },
-        ],
+      const messageService = runtime.messageService;
+      if (!messageService) throw new Error("Message service is unavailable");
+      const roomId = stringToUuid(`life-manager-money-room:${runtime.agentId}`);
+      const entityId = stringToUuid(`life-manager-money-actor:${runtime.agentId}`);
+      await runtime.ensureConnection({
+        entityId,
+        roomId,
+        worldId: stringToUuid(`life-manager-money-world:${runtime.agentId}`),
+        type: ChannelType.DM,
+        name: "Life Manager money loop",
+        userName: "life-manager",
+        source: MESSAGE_SOURCE_TRIGGER_PROMPT,
       });
-      const bridge = runtime.getService<ProviderBridgeService>(
-        PROVIDER_BRIDGE_SERVICE_TYPE,
-      );
-      if (!bridge) throw new Error("Provider bridge service is unavailable");
-      const execution = await bridge.execute({ toolRef, inputRef });
-      if (!execution.ok) {
-        throw new Error(`Active economic loop failed: ${execution.errorCode}`);
+      const releaseActor = registerRuntimeManagedInternalActor(runtime, entityId);
+      let result;
+      try {
+        result = await messageService.handleMessage(
+          runtime,
+          createMessageMemory({
+            id: stringToUuid(`life-manager-money:${record.taskId}:${record.firedAtIso}`),
+            entityId,
+            agentId: runtime.agentId,
+            roomId,
+            content: {
+              text: `Scheduled Life Manager money wake fired. Do this now: ${record.promptInstructions}`,
+              source: MESSAGE_SOURCE_TRIGGER_PROMPT,
+            },
+          }),
+        );
+      } finally {
+        releaseActor();
+      }
+      if (result.terminalFailure) {
+        throw new Error(result.terminalFailure.message);
       }
       return {
         ok: true,
         channelKey: MONEY_LOOP_CHANNEL,
         metadata: {
           heartbeatAt: new Date().toISOString(),
-          candidateRef: decision.candidateRef,
-          toolRef: decision.toolRef,
-          nextGraph: decision.nextGraph,
-          modelAttempts: decision.attempts,
-          providerToolRef: execution.toolRef,
-          providerResultSha256: execution.resultSha256,
-          providerResult: execution.result,
+          actionCount: result.actionResults?.length ?? 0,
+          didRespond: result.didRespond,
         },
       };
     },
@@ -82,9 +84,8 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
       tasks: [
         {
           kind: "custom",
-          promptInstructions:
-            "Run one bounded General Agent money wake from the active durable Goal and checkpoint.",
-          trigger: { kind: "interval", everyMinutes: 5 },
+          promptInstructions: MONEY_LOOP_PROMPT,
+          trigger: { kind: "interval", everyMinutes: 1 },
           priority: "high",
           output: { destination: "channel", target: MONEY_LOOP_CHANNEL },
           idempotencyKey: MONEY_LOOP_IDEMPOTENCY_KEY,
@@ -105,7 +106,11 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
       const moneyTask = (await runner.list()).find(
         (task) => task.idempotencyKey === MONEY_LOOP_IDEMPOTENCY_KEY,
       );
-      if (moneyTask?.metadata?.pendingDispatch) {
+      if (moneyTask) {
+        await runner.apply(moneyTask.taskId, "edit", {
+          promptInstructions: MONEY_LOOP_PROMPT,
+          trigger: { kind: "interval", everyMinutes: 1 },
+        });
         await runner.apply(moneyTask.taskId, "snooze", {
           untilIso: new Date().toISOString(),
         });
