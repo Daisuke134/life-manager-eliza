@@ -81,7 +81,7 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
       const moneyTask = (await runner.list()).find(
         (task) => task.idempotencyKey === MONEY_LOOP_IDEMPOTENCY_KEY,
       );
-      if (moneyTask?.metadata?.pendingDispatch) {
+      if (moneyTask) {
         await runner.apply(moneyTask.taskId, "snooze", {
           untilIso: new Date().toISOString(),
         });
