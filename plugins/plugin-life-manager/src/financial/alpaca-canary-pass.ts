@@ -230,7 +230,7 @@ export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
   const account = await provider.observe("SPY");
   const data = createAlpacaReadOnlyMarketData();
   const day = 86_400_000;
-  const [chain, crypto] = await Promise.all([
+  const [chain, crypto, stocks] = await Promise.all([
     data.readOptionChain({
       underlyingSymbol: "SPY",
       expirationDateGte: new Date(now.getTime() + 3 * day),
@@ -240,6 +240,7 @@ export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
       limit: 1_000,
     }),
     data.readCryptoSnapshots(["BTC/USD", "ETH/USD"]),
+    data.readStockSnapshots(["QQQ"]),
   ]);
   const groups = new Map<string, { symbol: string; strike: number; kind: string; quote: NonNullable<(typeof chain)[string]["latestQuote"]>; delta: number }[]>();
   for (const [symbol, snapshot] of Object.entries(chain)) {
@@ -264,6 +265,7 @@ export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
       if (!(debit > 0 && debit < width)) return [];
       return [{
         candidateRef: `alpaca-option-spread://SPY/${buy.symbol.slice(3, 9)}/${buy.strike}${buy.kind}-${sell.strike}${sell.kind}`,
+        assetClass: "OPTION" as const,
         structure: call ? "bull_call_debit_spread" as const : "bear_put_debit_spread" as const,
         buySymbol: buy.symbol,
         sellSymbol: sell.symbol,
@@ -275,25 +277,58 @@ export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
       }];
     });
   }).sort((a, b) => a.quoteCostUsd - b.quoteCostUsd || a.maxLossUsd - b.maxLossUsd).slice(0, 12);
-  if (!offered.length) return Object.freeze({ status: "NO_CANDIDATES" as const, candidateCount: 0 });
+  const spotMaxLossUsd = Math.round(Math.min(account.equity * 0.0025, 250) * 100) / 100;
+  const spotCandidates = [
+    ...Object.entries(crypto).flatMap(([symbol, snapshot]) => {
+      const quote = snapshot.latestQuote;
+      if (!quote || !(quote.ap > quote.bp && quote.bp > 0)) return [];
+      return [{
+        candidateRef: `alpaca-crypto://${symbol.replace("/", "-")}`,
+        assetClass: "CRYPTO" as const,
+        symbol,
+        structure: "spot_long" as const,
+        maxLossUsd: spotMaxLossUsd,
+        bid: quote.bp,
+        ask: quote.ap,
+        spreadBps: Math.round(((quote.ap - quote.bp) / ((quote.ap + quote.bp) / 2)) * 10_000),
+        quoteAt: quote.t,
+      }];
+    }),
+    ...Object.entries(stocks).flatMap(([symbol, snapshot]) => {
+      const quote = snapshot.latestQuote;
+      if (!quote || !(quote.ap > quote.bp && quote.bp > 0)) return [];
+      return [{
+        candidateRef: `alpaca-equity://${symbol}`,
+        assetClass: "EQUITY" as const,
+        symbol,
+        structure: "spot_long" as const,
+        maxLossUsd: spotMaxLossUsd,
+        bid: quote.bp,
+        ask: quote.ap,
+        spreadBps: Math.round(((quote.ap - quote.bp) / ((quote.ap + quote.bp) / 2)) * 10_000),
+        quoteAt: quote.t,
+      }];
+    }),
+  ];
+  const allCandidates = [...offered, ...spotCandidates];
+  if (!allCandidates.length) return Object.freeze({ status: "NO_CANDIDATES" as const, candidateCount: 0 });
   const bucket = now.toISOString().slice(0, 13);
-  const candidates = offered.map(({ maxLossUsd: _loss, maxProfitUsd: _profit, quoteCostUsd: _cost, buyDelta: _buyDelta, sellDelta: _sellDelta, ...candidate }) => candidate);
-  const fingerprint = requestFingerprint(candidates);
+  const fingerprint = createHash("sha256").update(JSON.stringify(allCandidates)).digest("hex");
   const scope = await ensureWorkItem(runtime, db, `a11-ranking-${bucket}-${fingerprint.slice(0, 8)}`, fingerprint, now,
-    "Rank current Alpaca paper opportunities without creating a broker effect.");
-  const evidenceRefs = ["alpaca-sdk://SPY/option-chain", "alpaca-sdk://BTC-ETH/crypto-snapshots"];
+    "Allocate across current Alpaca paper opportunities without creating a broker effect.");
+  const evidenceRefs = ["alpaca-sdk://SPY/option-chain", "alpaca-sdk://BTC-ETH/crypto-snapshots", "alpaca-sdk://QQQ/stock-snapshot"];
   const decision = await decideAndPersistAlpacaTrade(runtime, db, {
     ...scope,
-    objective: "Select the strongest defined-risk SPY options candidate, or NO_TRADE. Crypto is market context only. This research pass must not execute.",
-    observation: { paper: true, account, candidates: offered, crypto },
+    objective: "Select the strongest risk-bounded candidate across SPY options, BTC/ETH crypto, and QQQ, or NO_TRADE. Compare evidence across markets. This research pass must not execute.",
+    observation: { paper: true, account, candidates: allCandidates },
     evidenceRefs,
-    candidateRefs: offered.map(({ candidateRef }) => candidateRef),
+    candidateRefs: allCandidates.map(({ candidateRef }) => candidateRef),
   });
-  const selected = offered.find(({ candidateRef }) => candidateRef === decision.candidateRef);
+  const selected = allCandidates.find(({ candidateRef }) => candidateRef === decision.candidateRef);
   if (decision.status === "TRADE" && (!selected || Math.abs(selected.maxLossUsd - decision.maxLossUsd) > 0.01))
     throw new Error("Alpaca candidate ranking max loss mismatch");
-  await persistNoEffectOutcome(db, scope, "RESEARCH_ONLY", { decision, rankedCandidates: offered });
-  return Object.freeze({ status: decision.status === "TRADE" ? "CANDIDATE_RANKED" as const : "NO_TRADE" as const, candidateCount: offered.length, decision });
+  await persistNoEffectOutcome(db, scope, "RESEARCH_ONLY", { decision, rankedCandidates: allCandidates });
+  return Object.freeze({ status: decision.status === "TRADE" ? "CANDIDATE_RANKED" as const : "NO_TRADE" as const, candidateCount: allCandidates.length, decision });
 }
 
 function reconcileCampaignSnapshot(

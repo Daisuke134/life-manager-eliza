@@ -11,6 +11,9 @@ export interface AlpacaReadOnlyMarketData {
   readCryptoSnapshots(
     symbols: readonly string[],
   ): Promise<Readonly<Record<string, marketData.CryptoSnapshot>>>;
+  readStockSnapshots(
+    symbols: readonly string[],
+  ): Promise<Readonly<Record<string, marketData.StockSnapshot>>>;
 }
 
 function symbolList(symbols: readonly string[]): string {
@@ -41,6 +44,11 @@ export function createAlpacaReadOnlyMarketData(
         symbols: symbolList(symbols),
       });
       return response.snapshots;
+    },
+    async readStockSnapshots(symbols: readonly string[]) {
+      return marketDataClient.stocks.stockSnapshots({
+        symbols: symbolList(symbols),
+      });
     },
   });
 }

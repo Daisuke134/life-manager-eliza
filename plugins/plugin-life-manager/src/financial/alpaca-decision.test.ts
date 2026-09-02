@@ -51,6 +51,7 @@ function runtime() {
       action: "ALPACA_TRADING_DECISION",
       params: {
         status: "NO_TRADE",
+        assetClass: "NONE",
         candidateRef: "NO_TRADE",
         thesis: "The observation is insufficient for a bounded edge.",
         structure: "No position.",
