@@ -90,6 +90,7 @@ import {
   type SpecialistDecisionRequest,
 } from "./specialist-decision.js";
 import { registerMoneyLoop, unregisterMoneyLoop } from "./money-loop.js";
+import { generalBrowserAciAction } from "./general-browser-aci.js";
 
 export const LIFE_MANAGER_SERVICE_TYPE = "LIFE_MANAGER" as const;
 
@@ -232,6 +233,7 @@ export const lifeManagerPlugin: Plugin = {
   ],
   actions: [
     lifeManagerHealthAction,
+    generalBrowserAciAction,
     alpacaBootstrapAction,
     alpacaBootstrapBrowserAction,
     alpacaBootstrapEmailVerifyAction,
