@@ -101,6 +101,11 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
         runtime,
         service.getRunner({ agentId: runtime.agentId }),
       );
+      const taskService = runtime.getService("task") as
+        | { runDueTasks?: () => Promise<void>; startTimer?: () => void }
+        | null;
+      await taskService?.runDueTasks?.();
+      taskService?.startTimer?.();
     });
   } catch (error) {
     unregisterScheduledTaskChannelDispatcher(
@@ -111,10 +116,6 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
     throw error;
   }
   installed.set(runtime, contribution);
-  const taskService = runtime.getService("task") as
-    | { startTimer?: () => void }
-    | null;
-  taskService?.startTimer?.();
 }
 
 export function unregisterMoneyLoop(runtime: IAgentRuntime): void {
