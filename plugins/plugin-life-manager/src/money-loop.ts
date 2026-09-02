@@ -7,7 +7,6 @@ import {
   type ScheduledTaskChannelDispatcherContribution,
   unregisterScheduledTaskChannelDispatcher,
 } from "@elizaos/plugin-scheduling";
-import { decideSpecialistStep } from "./specialist-decision.js";
 import {
   PROVIDER_BRIDGE_SERVICE_TYPE,
   type ProviderBridgeService,
@@ -31,25 +30,6 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
       if (!toolRef || !inputRef) {
         throw new Error("Active economic tool reference is unavailable");
       }
-      const decision = await decideSpecialistStep(runtime, {
-        workItemRef: `money-wake:${record.taskId}:${record.firedAtIso}`,
-        objective:
-          "Advance the active economic child goal toward verified banked net while respecting authorization, provider rules, risk, and delivery capacity.",
-        candidates: [
-          {
-            candidateRef: "active-economic-child-goal",
-            summary:
-              "The highest-positive-EV authorized child goal available from durable Life Manager state.",
-          },
-        ],
-        tools: [
-          {
-            toolRef: "provider-bridge:execute-active-economic-loop",
-            description:
-              "Execute the active marketplace loop through the existing opaque provider bridge; the tool owns official readback and exactly-once state.",
-          },
-        ],
-      });
       const bridge = runtime.getService<ProviderBridgeService>(
         PROVIDER_BRIDGE_SERVICE_TYPE,
       );
@@ -63,10 +43,6 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
         channelKey: MONEY_LOOP_CHANNEL,
         metadata: {
           heartbeatAt: new Date().toISOString(),
-          candidateRef: decision.candidateRef,
-          toolRef: decision.toolRef,
-          nextGraph: decision.nextGraph,
-          modelAttempts: decision.attempts,
           providerToolRef: execution.toolRef,
           providerResultSha256: execution.resultSha256,
           providerResult: execution.result,
