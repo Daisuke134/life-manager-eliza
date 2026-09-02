@@ -1,4 +1,7 @@
 import type { Route, RouteHandlerResult } from "@elizaos/core";
+import { and, desc, eq } from "drizzle-orm";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { decisionReceiptsTable, effectIntentsTable, lifeManagerDbSchema, outcomeReceiptsTable } from "../db/schema.js";
 import {
   advanceAlpacaBootstrapCheckpoint,
   setAlpacaBootstrapCheckpointPhase,
@@ -13,8 +16,42 @@ import {
   runAlpacaCanaryPass,
   type AlpacaCanaryCandidateInput,
 } from "./alpaca-canary-pass.js";
+import { createLocalAlpacaCliProvider } from "./alpaca-local-adapter.js";
+import { buildAlpacaPublicProjection } from "./alpaca-public-projection.js";
+
+type Database = NodePgDatabase<typeof lifeManagerDbSchema>;
 
 export const alpacaPaperAccountRoutes: Route[] = [
+  {
+    type: "GET",
+    path: "/api/life-manager/alpaca/public",
+    rawPath: true,
+    routeHandler: async (context): Promise<RouteHandlerResult> => {
+      const db = context.runtime.db as unknown as Database | undefined;
+      if (!db || typeof db.select !== "function")
+        return { status: 503, body: { error: "Alpaca public projection is unavailable" } };
+      const scope = and(
+        eq(decisionReceiptsTable.agentId, context.runtime.agentId),
+        eq(decisionReceiptsTable.entityId, context.runtime.agentId),
+      );
+      try {
+        const [campaign, decisions, effects, outcomes] = await Promise.all([
+          createLocalAlpacaCliProvider().readCampaignSnapshot(),
+          db.select({ value: decisionReceiptsTable.decision, createdAt: decisionReceiptsTable.createdAt })
+            .from(decisionReceiptsTable).where(scope).orderBy(desc(decisionReceiptsTable.createdAt)).limit(20),
+          db.select({ id: effectIntentsTable.id, effectClass: effectIntentsTable.effectClass, status: effectIntentsTable.status, createdAt: effectIntentsTable.createdAt })
+            .from(effectIntentsTable).where(and(eq(effectIntentsTable.agentId, context.runtime.agentId), eq(effectIntentsTable.entityId, context.runtime.agentId)))
+            .orderBy(desc(effectIntentsTable.createdAt)).limit(100),
+          db.select({ effectIntentId: outcomeReceiptsTable.effectIntentId, outcome: outcomeReceiptsTable.outcome, receipt: outcomeReceiptsTable.receipt, createdAt: outcomeReceiptsTable.createdAt })
+            .from(outcomeReceiptsTable).where(and(eq(outcomeReceiptsTable.agentId, context.runtime.agentId), eq(outcomeReceiptsTable.entityId, context.runtime.agentId)))
+            .orderBy(desc(outcomeReceiptsTable.createdAt)).limit(100),
+        ]);
+        return { status: 200, body: buildAlpacaPublicProjection({ campaign, decisions, effects, outcomes }) };
+      } catch {
+        return { status: 503, body: { error: "Alpaca public projection is unavailable" } };
+      }
+    },
+  },
   {
     type: "POST",
     path: "/api/life-manager/alpaca/paper-canary",
