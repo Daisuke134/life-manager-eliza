@@ -111,6 +111,10 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
     throw error;
   }
   installed.set(runtime, contribution);
+  const taskService = runtime.getService("task") as
+    | { startTimer?: () => void }
+    | null;
+  taskService?.startTimer?.();
 }
 
 export function unregisterMoneyLoop(runtime: IAgentRuntime): void {

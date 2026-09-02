@@ -340,6 +340,7 @@
     "@elizaos/plugin-capacitor-bridge": "workspace:*",
     "@elizaos/plugin-cloud-apps": "workspace:*",
     "@elizaos/plugin-calendar": "workspace:*",
+    "@elizaos/plugin-cli-inference": "workspace:*",
     "@elizaos/plugin-coding-tools": "workspace:*",
     "@elizaos/plugin-companion": "workspace:*",
     "@elizaos/plugin-commands": "workspace:*",

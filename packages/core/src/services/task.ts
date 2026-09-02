@@ -142,7 +142,6 @@ export class TaskService extends Service {
 				return undefined;
 			},
 		});
-		await service.startTimer();
 		return service;
 	}
 
