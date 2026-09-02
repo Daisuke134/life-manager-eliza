@@ -233,7 +233,25 @@ export async function decideAndPersistAlpacaTrade(
     schema,
     maxRerolls: 1,
     validateBeforeReturn: true,
-  });
+  }).catch(() => ({
+    parsed: {
+      action: ALPACA_TRADING_DECISION,
+      params: {
+        status: "NO_TRADE",
+        assetClass: "NONE",
+        candidateRef: "NO_TRADE",
+        thesis: "The decision model was unavailable, so no positive expected value is established.",
+        structure: "No paper position is opened.",
+        maxLossUsd: 0,
+        estimatedWinProbability: 0,
+        expectedGainUsd: 0,
+        invalidation: "Re-evaluate from fresh market evidence when the decision model is available.",
+        exitPlan: "No exit is required because no effect starts.",
+        evidenceRefs: [request.evidenceRefs[0]],
+      },
+    },
+    attempts: 2,
+  }));
   const envelope = result.parsed as Record<string, unknown>;
   if (envelope.action !== ALPACA_TRADING_DECISION)
     throw new Error("Invalid Alpaca trading decision");
