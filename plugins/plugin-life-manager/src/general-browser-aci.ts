@@ -3,7 +3,7 @@ import type { Action, ActionResult } from "@elizaos/core";
 
 const LOCAL_CDP = /^http:\/\/(?:127\.0\.0\.1|localhost):\d+$/u;
 const MAX_OUTPUT = 1_000_000;
-const WEB_URL = /^https?:\/\/[^\s]{1,4_096}$/u;
+const WEB_URL = /^https?:\/\/[^\s]{1,4096}$/u;
 
 type ReadOperation = "observe" | "links" | "accessibility" | "navigate";
 

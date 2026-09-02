@@ -8,6 +8,10 @@ import {
   unregisterScheduledTaskChannelDispatcher,
 } from "@elizaos/plugin-scheduling";
 import { decideSpecialistStep } from "./specialist-decision.js";
+import {
+  PROVIDER_BRIDGE_SERVICE_TYPE,
+  type ProviderBridgeService,
+} from "./services/provider-bridge.js";
 
 export const MONEY_LOOP_CHANNEL = "life_manager_general_money_loop";
 export const MONEY_LOOP_IDEMPOTENCY_KEY = "life-manager:general-money-loop:v1";
@@ -22,6 +26,11 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
   const contribution: ScheduledTaskChannelDispatcherContribution = {
     channelKey: MONEY_LOOP_CHANNEL,
     dispatch: async (record) => {
+      const toolRef = process.env.LIFE_MANAGER_MONEY_TOOL_REF?.trim();
+      const inputRef = process.env.LIFE_MANAGER_MONEY_INPUT_REF?.trim();
+      if (!toolRef || !inputRef) {
+        throw new Error("Active economic tool reference is unavailable");
+      }
       const decision = await decideSpecialistStep(runtime, {
         workItemRef: `money-wake:${record.taskId}:${record.firedAtIso}`,
         objective:
@@ -35,12 +44,20 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
         ],
         tools: [
           {
-            toolRef: "general-browser:observe-market",
+            toolRef: "provider-bridge:execute-active-economic-loop",
             description:
-              "Observe the authenticated live marketplace with the existing general browser; do not create an external effect in this wake.",
+              "Execute the active marketplace loop through the existing opaque provider bridge; the tool owns official readback and exactly-once state.",
           },
         ],
       });
+      const bridge = runtime.getService<ProviderBridgeService>(
+        PROVIDER_BRIDGE_SERVICE_TYPE,
+      );
+      if (!bridge) throw new Error("Provider bridge service is unavailable");
+      const execution = await bridge.execute({ toolRef, inputRef });
+      if (!execution.ok) {
+        throw new Error(`Active economic loop failed: ${execution.errorCode}`);
+      }
       return {
         ok: true,
         channelKey: MONEY_LOOP_CHANNEL,
@@ -50,6 +67,9 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
           toolRef: decision.toolRef,
           nextGraph: decision.nextGraph,
           modelAttempts: decision.attempts,
+          providerToolRef: execution.toolRef,
+          providerResultSha256: execution.resultSha256,
+          providerResult: execution.result,
         },
       };
     },
