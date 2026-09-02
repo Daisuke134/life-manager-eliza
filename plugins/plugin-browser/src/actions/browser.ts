@@ -10,7 +10,7 @@ import type {
   HandlerOptions,
   Memory,
 } from "@elizaos/core";
-import { logger } from "@elizaos/core";
+import { logger, MESSAGE_SOURCE_TRIGGER_PROMPT } from "@elizaos/core";
 import {
   BROWSER_SERVICE_TYPE,
   type BrowserService,
@@ -881,7 +881,12 @@ export const browserAction: Action = {
       const result = browserService
         ? await browserService.execute(command, params?.target)
         : await executeBrowserWorkspaceCommand(command);
-      const ownsTerminalReply = browserCommandOwnsTerminalReply(command);
+      // Opening a page completes a direct user request, but it is only one
+      // observation step inside a scheduled autonomous turn. Keep that turn
+      // with the model so it can inspect, act, and verify the requested goal.
+      const ownsTerminalReply =
+        message.content.source !== MESSAGE_SOURCE_TRIGGER_PROMPT &&
+        browserCommandOwnsTerminalReply(command);
       if (!ownsTerminalReply) {
         await emitBrowserStepProgress(
           callback,
