@@ -56,6 +56,8 @@ function runtime() {
         thesis: "The observation is insufficient for a bounded edge.",
         structure: "No position.",
         maxLossUsd: 0,
+        estimatedWinProbability: 0,
+        expectedGainUsd: 0,
         invalidation: "Re-evaluate after fresh option quotes and Greeks.",
         exitPlan: "No exit because no position is opened.",
         evidenceRefs: ["alpaca-cli://spy/latest-trade"],

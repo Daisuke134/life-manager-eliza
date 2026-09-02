@@ -15,7 +15,7 @@ import { decideAndPersistAlpacaTrade } from "./alpaca-decision.js";
 import { createLocalAlpacaCliProvider, type AlpacaCampaignSnapshot } from "./alpaca-local-adapter.js";
 import { createAlpacaReadOnlyMarketData } from "./alpaca-market-data.js";
 import { reconcileAlpacaPaperCanaryReadback, runAlpacaPaperCanary, sealAlpacaPaperCanary } from "./alpaca-paper-canary.js";
-import { evaluateAlpacaRisk } from "./alpaca-risk-gate.js";
+import { ALPACA_RISK_POLICY, evaluateAlpacaRisk } from "./alpaca-risk-gate.js";
 
 export interface AlpacaCanaryCandidateInput {
   readonly candidateRef: string;
@@ -263,6 +263,8 @@ export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
       const debit = Math.round((buy.quote.ap - sell.quote.bp) * 100) / 100;
       const width = Math.abs(upper.strike - lower.strike);
       if (!(debit > 0 && debit < width)) return [];
+      const quoteCostUsd = Math.round(((buy.quote.ap - buy.quote.bp) + (sell.quote.ap - sell.quote.bp)) * 10_000) / 100;
+      const quoteAt = new Date(Math.min(buy.quote.t.getTime(), sell.quote.t.getTime()));
       return [{
         candidateRef: `alpaca-option-spread://SPY/${buy.symbol.slice(3, 9)}/${buy.strike}${buy.kind}-${sell.strike}${sell.kind}`,
         assetClass: "OPTION" as const,
@@ -271,7 +273,10 @@ export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
         sellSymbol: sell.symbol,
         maxLossUsd: debit * 100,
         maxProfitUsd: Math.round((width - debit) * 10_000) / 100,
-        quoteCostUsd: Math.round(((buy.quote.ap - buy.quote.bp) + (sell.quote.ap - sell.quote.bp)) * 10_000) / 100,
+        quoteCostUsd,
+        spreadBps: Math.round((quoteCostUsd / (debit * 100)) * 10_000),
+        quoteAt,
+        quoteAgeMs: now.getTime() - quoteAt.getTime(),
         buyDelta: buy.delta,
         sellDelta: sell.delta,
       }];
@@ -292,6 +297,7 @@ export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
         ask: quote.ap,
         spreadBps: Math.round(((quote.ap - quote.bp) / ((quote.ap + quote.bp) / 2)) * 10_000),
         quoteAt: quote.t,
+        quoteAgeMs: now.getTime() - quote.t.getTime(),
       }];
     }),
     ...Object.entries(stocks).flatMap(([symbol, snapshot]) => {
@@ -307,6 +313,7 @@ export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
         ask: quote.ap,
         spreadBps: Math.round(((quote.ap - quote.bp) / ((quote.ap + quote.bp) / 2)) * 10_000),
         quoteAt: quote.t,
+        quoteAgeMs: now.getTime() - quote.t.getTime(),
       }];
     }),
   ];
@@ -325,10 +332,24 @@ export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
     candidateRefs: allCandidates.map(({ candidateRef }) => candidateRef),
   });
   const selected = allCandidates.find(({ candidateRef }) => candidateRef === decision.candidateRef);
-  if (decision.status === "TRADE" && (!selected || Math.abs(selected.maxLossUsd - decision.maxLossUsd) > 0.01))
-    throw new Error("Alpaca candidate ranking max loss mismatch");
-  await persistNoEffectOutcome(db, scope, "RESEARCH_ONLY", { decision, rankedCandidates: allCandidates });
-  return Object.freeze({ status: decision.status === "TRADE" ? "CANDIDATE_RANKED" as const : "NO_TRADE" as const, candidateCount: allCandidates.length, decision });
+  const reasons: string[] = [];
+  if (decision.status === "TRADE") {
+    if (!selected) reasons.push("CANDIDATE_UNAVAILABLE");
+    if (selected && Math.abs(selected.maxLossUsd - decision.maxLossUsd) > 0.01) reasons.push("MAX_LOSS_MISMATCH");
+    if (decision.expectedValueUsd === undefined || decision.expectedValueUsd <= 0) reasons.push("NONPOSITIVE_EXPECTED_VALUE");
+    if (selected && (selected.quoteAgeMs < 0 || selected.quoteAgeMs > ALPACA_RISK_POLICY.maxQuoteAgeMs)) reasons.push("STALE_QUOTE");
+    if (selected && selected.spreadBps > ALPACA_RISK_POLICY.maxSpreadFraction * 10_000) reasons.push("SPREAD_LIMIT");
+    if (selected && "maxProfitUsd" in selected && decision.expectedGainUsd !== undefined &&
+        decision.expectedGainUsd > selected.maxProfitUsd) reasons.push("EXPECTED_GAIN_EXCEEDS_MAX_PROFIT");
+  }
+  const scoringGate = Object.freeze({ allowed: decision.status === "TRADE" && reasons.length === 0, reasons: Object.freeze(reasons) });
+  await persistNoEffectOutcome(db, scope, "RESEARCH_ONLY", { decision, scoringGate, rankedCandidates: allCandidates });
+  return Object.freeze({
+    status: decision.status === "NO_TRADE" ? "NO_TRADE" as const : scoringGate.allowed ? "CANDIDATE_RANKED" as const : "CANDIDATE_REJECTED" as const,
+    candidateCount: allCandidates.length,
+    decision,
+    scoringGate,
+  });
 }
 
 function reconcileCampaignSnapshot(
