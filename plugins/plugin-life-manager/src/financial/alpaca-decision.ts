@@ -26,6 +26,7 @@ export interface AlpacaDecisionRequest {
 
 export interface AlpacaTradingDecision {
   readonly status: "NO_TRADE" | "TRADE";
+  readonly assetClass: "NONE" | "CRYPTO" | "EQUITY" | "OPTION";
   readonly candidateRef: string;
   readonly thesis: string;
   readonly structure: string;
@@ -39,6 +40,7 @@ export interface AlpacaTradingDecision {
 type Database = NodePgDatabase<typeof lifeManagerDbSchema>;
 const fields = [
   "status",
+  "assetClass",
   "candidateRef",
   "thesis",
   "structure",
@@ -47,6 +49,15 @@ const fields = [
   "exitPlan",
   "evidenceRefs",
 ] as const;
+const legacyFields = fields.filter((field) => field !== "assetClass");
+
+function assetClassFor(candidateRef: string) {
+  if (candidateRef === "NO_TRADE") return "NONE" as const;
+  if (candidateRef.startsWith("alpaca-crypto://")) return "CRYPTO" as const;
+  if (candidateRef.startsWith("alpaca-equity://")) return "EQUITY" as const;
+  if (candidateRef.startsWith("alpaca-option")) return "OPTION" as const;
+  throw new Error("Invalid Alpaca trading decision");
+}
 
 function validText(value: unknown): value is string {
   return (
@@ -65,13 +76,15 @@ function normalize(
   if (!raw || typeof raw !== "object" || Array.isArray(raw))
     throw new Error("Invalid Alpaca trading decision");
   const value = raw as Record<string, unknown>;
-  if (
-    Object.keys(value).length !== fields.length ||
-    fields.some((field) => !Object.hasOwn(value, field))
-  )
+  const legacy = Object.keys(value).length === legacyFields.length &&
+    legacyFields.every((field) => Object.hasOwn(value, field));
+  if (!legacy && (Object.keys(value).length !== fields.length ||
+    fields.some((field) => !Object.hasOwn(value, field))))
     throw new Error("Invalid Alpaca trading decision");
+  const inferredAssetClass = assetClassFor(String(value.candidateRef));
   if (
     (value.status !== "NO_TRADE" && value.status !== "TRADE") ||
+    (!legacy && value.assetClass !== inferredAssetClass) ||
     typeof value.candidateRef !== "string" ||
     (value.status === "NO_TRADE"
       ? value.candidateRef !== "NO_TRADE"
@@ -95,6 +108,7 @@ function normalize(
     throw new Error("Invalid Alpaca trading decision");
   return Object.freeze({
     status: value.status,
+    assetClass: inferredAssetClass,
     candidateRef: value.candidateRef,
     thesis: value.thesis.trim(),
     structure: value.structure.trim(),
@@ -136,6 +150,10 @@ export async function decideAndPersistAlpacaTrade(
     required: [...fields],
     properties: {
       status: { type: "string" as const, enum: ["NO_TRADE", "TRADE"] },
+      assetClass: {
+        type: "string" as const,
+        enum: ["NONE", "CRYPTO", "EQUITY", "OPTION"],
+      },
       candidateRef: {
         type: "string" as const,
         enum: ["NO_TRADE", ...request.candidateRefs],
@@ -162,10 +180,10 @@ export async function decideAndPersistAlpacaTrade(
     },
   };
   const prompt = [
-    "Decide whether this paper account should take one defined-risk options trade now.",
+    "Choose at most one offered paper-trading candidate across crypto, equities/ETFs, and options, or choose NO_TRADE.",
     `Return only one JSON object shaped as ${JSON.stringify({ action: ALPACA_TRADING_DECISION, params: Object.fromEntries(fields.map((field) => [field, `<${field}>`])) })}.`,
     "Every thesis, structure, invalidation, and exitPlan string must be non-empty, including for NO_TRADE.",
-    "For NO_TRADE use candidateRef NO_TRADE and maxLossUsd 0. For TRADE use exactly one offered candidateRef and its exact offered maxLossUsd. Do not execute or claim profit.",
+    "For NO_TRADE use assetClass NONE, candidateRef NO_TRADE, and maxLossUsd 0. For TRADE use the assetClass encoded by exactly one offered candidateRef and its exact offered maxLossUsd. Do not execute or claim profit.",
     `Objective: ${request.objective}`,
     `Observation: ${JSON.stringify(request.observation)}`,
     `Allowed evidence references: ${JSON.stringify(request.evidenceRefs)}`,
