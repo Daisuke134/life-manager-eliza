@@ -15,7 +15,7 @@ import { decideAndPersistAlpacaTrade } from "./alpaca-decision.js";
 import { createLocalAlpacaCliProvider, type AlpacaCampaignSnapshot } from "./alpaca-local-adapter.js";
 import { createAlpacaReadOnlyMarketData } from "./alpaca-market-data.js";
 import { reconcileAlpacaPaperCanaryReadback, runAlpacaPaperCanary, sealAlpacaPaperCanary } from "./alpaca-paper-canary.js";
-import { ALPACA_RISK_POLICY, evaluateAlpacaRisk } from "./alpaca-risk-gate.js";
+import { ALPACA_RISK_POLICY, evaluateAlpacaPortfolioRisk, evaluateAlpacaRisk } from "./alpaca-risk-gate.js";
 
 export interface AlpacaCanaryCandidateInput {
   readonly candidateRef: string;
@@ -230,7 +230,7 @@ export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
   const account = await provider.observe("SPY");
   const data = createAlpacaReadOnlyMarketData();
   const day = 86_400_000;
-  const [chain, crypto, stocks] = await Promise.all([
+  const [chain, crypto, stocks, campaign] = await Promise.all([
     data.readOptionChain({
       underlyingSymbol: "SPY",
       expirationDateGte: new Date(now.getTime() + 3 * day),
@@ -241,7 +241,18 @@ export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
     }),
     data.readCryptoSnapshots(["BTC/USD", "ETH/USD"]),
     data.readStockSnapshots(["QQQ"]),
+    provider.readCampaignSnapshot(),
   ]);
+  const opening = openingOrderIntent(await db.select({ inputRefs: effectIntentsTable.inputRefs }).from(effectIntentsTable).where(and(
+    eq(effectIntentsTable.agentId, runtime.agentId),
+    eq(effectIntentsTable.entityId, runtime.agentId),
+    eq(effectIntentsTable.effectClass, "broker.paper.order"),
+  )));
+  const storedRisk = (opening?.inputRefs as { canaryRequest?: { risk?: { calculatedMaxLossUsd?: unknown } } } | undefined)
+    ?.canaryRequest?.risk?.calculatedMaxLossUsd;
+  const openRiskKnown = campaign.positions.length === 0 ||
+    (typeof storedRisk === "number" && Number.isFinite(storedRisk) && storedRisk >= 0);
+  const openMaxLossUsd = campaign.positions.length === 0 ? 0 : typeof storedRisk === "number" ? storedRisk : 0;
   const groups = new Map<string, { symbol: string; strike: number; kind: string; quote: NonNullable<(typeof chain)[string]["latestQuote"]>; delta: number }[]>();
   for (const [symbol, snapshot] of Object.entries(chain)) {
     const parsed = contract(symbol);
@@ -327,12 +338,29 @@ export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
   const decision = await decideAndPersistAlpacaTrade(runtime, db, {
     ...scope,
     objective: "Select the strongest risk-bounded candidate across SPY options, BTC/ETH crypto, and QQQ, or NO_TRADE. Compare evidence across markets. This research pass must not execute.",
-    observation: { paper: true, account, candidates: allCandidates },
+    observation: {
+      paper: true,
+      account,
+      portfolio: { positions: campaign.positions, openMaxLossUsd, openRiskKnown },
+      candidates: allCandidates,
+    },
     evidenceRefs,
     candidateRefs: allCandidates.map(({ candidateRef }) => candidateRef),
   });
   const selected = allCandidates.find(({ candidateRef }) => candidateRef === decision.candidateRef);
   const reasons: string[] = [];
+  const portfolioGate = selected ? evaluateAlpacaPortfolioRisk({
+    candidateMaxLossUsd: selected.maxLossUsd,
+    openMaxLossUsd,
+    openRiskKnown,
+    equityUsd: campaign.equity,
+    cashUsd: campaign.cash,
+    highWaterEquityUsd: Math.max(100_000, campaign.equity, campaign.lastEquity),
+    dailyPnlUsd: campaign.equity - campaign.lastEquity,
+    positionsCount: campaign.positions.length,
+    openOrdersCount: account.openOrdersCount,
+    reconciliationHealthy: campaign.positions.length === account.positionsCount,
+  }) : undefined;
   if (decision.status === "TRADE") {
     if (!selected) reasons.push("CANDIDATE_UNAVAILABLE");
     if (selected && Math.abs(selected.maxLossUsd - decision.maxLossUsd) > 0.01) reasons.push("MAX_LOSS_MISMATCH");
@@ -341,8 +369,13 @@ export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
     if (selected && selected.spreadBps > ALPACA_RISK_POLICY.maxSpreadFraction * 10_000) reasons.push("SPREAD_LIMIT");
     if (selected && "maxProfitUsd" in selected && decision.expectedGainUsd !== undefined &&
         decision.expectedGainUsd > selected.maxProfitUsd) reasons.push("EXPECTED_GAIN_EXCEEDS_MAX_PROFIT");
+    if (portfolioGate && !portfolioGate.allowed) reasons.push(...portfolioGate.reasons);
   }
-  const scoringGate = Object.freeze({ allowed: decision.status === "TRADE" && reasons.length === 0, reasons: Object.freeze(reasons) });
+  const scoringGate = Object.freeze({
+    allowed: decision.status === "TRADE" && reasons.length === 0,
+    reasons: Object.freeze([...new Set(reasons)]),
+    portfolio: portfolioGate,
+  });
   await persistNoEffectOutcome(db, scope, "RESEARCH_ONLY", { decision, scoringGate, rankedCandidates: allCandidates });
   return Object.freeze({
     status: decision.status === "NO_TRADE" ? "NO_TRADE" as const : scoringGate.allowed ? "CANDIDATE_RANKED" as const : "CANDIDATE_REJECTED" as const,
