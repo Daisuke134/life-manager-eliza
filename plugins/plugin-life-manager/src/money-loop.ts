@@ -27,7 +27,7 @@ const installed = new WeakMap<
 >();
 
 export function registerMoneyLoop(runtime: IAgentRuntime): void {
-  if (process.env.LIFE_MANAGER_DISABLE_MONEY_LOOP === "1") return;
+  if (process.env.LIFE_MANAGER_ENABLE_MONEY_LOOP !== "1") return;
   if (installed.has(runtime)) return;
   logger.info("[life-manager-money-loop] registering");
   const contribution: ScheduledTaskChannelDispatcherContribution = {
