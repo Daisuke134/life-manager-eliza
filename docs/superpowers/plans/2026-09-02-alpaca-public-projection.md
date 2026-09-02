@@ -45,3 +45,17 @@
 - [x] Run `bun run --cwd plugins/plugin-life-manager test -- alpaca-public-projection.test.ts`.
 - [x] Run `bun run --cwd plugins/plugin-life-manager build` and `git diff --check`.
 - [x] Commit, push, merge to `main`, then update the Life Manager spec without advancing A12 to done until a logged-out hosted URL is read back.
+
+### Task 4: Logged-out read-only page
+
+**Files:**
+- Create: `plugins/plugin-life-manager/src/financial/alpaca-public-page.ts`
+- Test: `plugins/plugin-life-manager/src/financial/alpaca-public-page.test.ts`
+- Modify: `plugins/plugin-life-manager/src/financial/alpaca-paper-account-routes.ts`
+
+**Consumes:** `GET /api/life-manager/alpaca/public` only.
+
+- [ ] Render `GET /alpaca` as one responsive server-returned HTML document.
+- [ ] Fetch only the shared public projection and populate the DOM with `textContent`; include no form, button, order action, external script, or mutation request.
+- [ ] Show paper-only status, equity/P&L, reconciliation, decision/gate, positions/fills, and effect timeline; show an honest unavailable state on read failure.
+- [ ] Verify page contract, typecheck, focused tests, build, commit, push, and merge. Keep A12 open until an actually hosted logged-out URL is read back.
