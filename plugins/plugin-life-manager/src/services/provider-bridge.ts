@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { type IAgentRuntime, Service } from "@elizaos/core";
 
@@ -51,12 +52,8 @@ export type ProviderBridgeResult =
     };
 
 export interface ProviderBridgeDependencies {
-  resolve: (
-    request: ProviderBridgeRequest,
-  ) => Promise<ProviderToolDescriptor>;
-  run: (
-    descriptor: ProviderToolDescriptor,
-  ) => Promise<ProviderProcessResult>;
+  resolve: (request: ProviderBridgeRequest) => Promise<ProviderToolDescriptor>;
+  run: (descriptor: ProviderToolDescriptor) => Promise<ProviderProcessResult>;
 }
 
 const CONTROL = /[\u0000-\u001f\u007f]/u;
@@ -80,10 +77,16 @@ function opaqueRequest(request: ProviderBridgeRequest): ProviderBridgeRequest {
   });
 }
 
-function privateDescriptor(value: ProviderToolDescriptor): ProviderToolDescriptor {
+function privateDescriptor(
+  value: ProviderToolDescriptor,
+): ProviderToolDescriptor {
   const executable = boundedText(value?.executable, 1_024);
   const cwd = boundedText(value?.cwd, 4_096);
-  if (!isAbsolute(cwd) || !Array.isArray(value?.args) || value.args.length > 64) {
+  if (
+    !isAbsolute(cwd) ||
+    !Array.isArray(value?.args) ||
+    value.args.length > 64
+  ) {
     throw new Error("Provider bridge descriptor invalid");
   }
   const args = value.args.map((arg) => boundedText(arg, 4_096));
@@ -140,11 +143,13 @@ function defaultProviderRunner(
         shell: false,
       },
       (error, stdout, stderr) => {
-        const failure = error as (Error & {
-          code?: number | string;
-          signal?: NodeJS.Signals;
-          killed?: boolean;
-        }) | null;
+        const failure = error as
+          | (Error & {
+              code?: number | string;
+              signal?: NodeJS.Signals;
+              killed?: boolean;
+            })
+          | null;
         resolve({
           exitCode:
             typeof failure?.code === "number"
@@ -153,8 +158,7 @@ function defaultProviderRunner(
                 ? null
                 : 0,
           signal: failure?.signal ?? null,
-          timedOut:
-            failure?.code === "ETIMEDOUT" || failure?.killed === true,
+          timedOut: failure?.code === "ETIMEDOUT" || failure?.killed === true,
           stdout: String(stdout ?? ""),
           stderr: String(stderr ?? ""),
         });
@@ -182,9 +186,26 @@ function failedResult(
 }
 
 const PRIVATE_RESULT_KEYS = new Set([
-  "executable", "args", "argv", "cwd", "env", "environment", "stdout",
-  "stderr", "command", "shell", "token", "accesstoken", "refreshtoken",
-  "secret", "password", "authorization", "cookie", "credential", "credentials", "apikey",
+  "executable",
+  "args",
+  "argv",
+  "cwd",
+  "env",
+  "environment",
+  "stdout",
+  "stderr",
+  "command",
+  "shell",
+  "token",
+  "accesstoken",
+  "refreshtoken",
+  "secret",
+  "password",
+  "authorization",
+  "cookie",
+  "credential",
+  "credentials",
+  "apikey",
 ]);
 
 function containsPrivateResultKey(value: Record<string, unknown>): boolean {
@@ -199,7 +220,9 @@ function containsPrivateResultKey(value: Record<string, unknown>): boolean {
       continue;
     }
     for (const [key, nested] of Object.entries(item)) {
-      if (PRIVATE_RESULT_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, ""))) {
+      if (
+        PRIVATE_RESULT_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, ""))
+      ) {
         return true;
       }
       pending.push(nested);
@@ -226,14 +249,22 @@ function publicResult(
   processResult: ProviderProcessResult,
 ): ProviderBridgeResult {
   if (processResult.timedOut) {
-    return failedResult(request, processResult.exitCode, "PROVIDER_TOOL_TIMEOUT");
+    return failedResult(
+      request,
+      processResult.exitCode,
+      "PROVIDER_TOOL_TIMEOUT",
+    );
   }
   if (
     processResult.exitCode !== 0 ||
     processResult.signal !== null ||
     Buffer.byteLength(processResult.stdout) > descriptor.maxBufferBytes
   ) {
-    return failedResult(request, processResult.exitCode, "PROVIDER_TOOL_FAILED");
+    return failedResult(
+      request,
+      processResult.exitCode,
+      "PROVIDER_TOOL_FAILED",
+    );
   }
   const source = processResult.stdout.endsWith("\n")
     ? processResult.stdout.slice(0, -1)
@@ -297,7 +328,40 @@ export class ProviderBridgeService extends Service {
   private resolver: ProviderBridgeDependencies["resolve"] | null = null;
 
   static async start(runtime: IAgentRuntime): Promise<ProviderBridgeService> {
-    return new ProviderBridgeService(runtime);
+    const service = new ProviderBridgeService(runtime);
+    const registryPath =
+      process.env.LIFE_MANAGER_PROVIDER_TOOL_REGISTRY?.trim();
+    if (registryPath) {
+      if (!isAbsolute(registryPath)) {
+        throw new Error("Provider bridge registry path must be absolute");
+      }
+      service.registerResolver(async (request) => {
+        const parsed = JSON.parse(
+          await readFile(registryPath, "utf8"),
+        ) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error("Provider bridge registry invalid");
+        }
+        const entries = (parsed as { entries?: unknown }).entries;
+        if (!Array.isArray(entries)) {
+          throw new Error("Provider bridge registry invalid");
+        }
+        const match = entries.find((entry) => {
+          if (!entry || typeof entry !== "object" || Array.isArray(entry))
+            return false;
+          const value = entry as Record<string, unknown>;
+          return (
+            value.toolRef === request.toolRef &&
+            value.inputRef === request.inputRef
+          );
+        }) as (Record<string, unknown> & { descriptor?: unknown }) | undefined;
+        if (!match?.descriptor || typeof match.descriptor !== "object") {
+          throw new Error("Provider bridge tool reference unavailable");
+        }
+        return match.descriptor as ProviderToolDescriptor;
+      });
+    }
+    return service;
   }
 
   registerResolver(resolver: ProviderBridgeDependencies["resolve"]): void {
