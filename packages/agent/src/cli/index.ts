@@ -54,11 +54,7 @@ export async function runAutonomousCli(
 
   if (command === "runtime") {
     const { bootElizaRuntime } = await import("../runtime/index.ts");
-    const runtime = await bootElizaRuntime();
-    const taskService = runtime.getService("task") as
-      | { startTimer?: () => void }
-      | null;
-    taskService?.startTimer?.();
+    await bootElizaRuntime();
     return;
   }
 

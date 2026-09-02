@@ -23,10 +23,6 @@ const installed = new WeakMap<
 
 export function registerMoneyLoop(runtime: IAgentRuntime): void {
   if (installed.has(runtime)) return;
-  const taskService = runtime.getService("task") as
-    | { startTimer?: () => void }
-    | null;
-  taskService?.startTimer?.();
   const contribution: ScheduledTaskChannelDispatcherContribution = {
     channelKey: MONEY_LOOP_CHANNEL,
     dispatch: async (record) => {
@@ -115,6 +111,10 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
     throw error;
   }
   installed.set(runtime, contribution);
+  const taskService = runtime.getService("task") as
+    | { startTimer?: () => void }
+    | null;
+  taskService?.startTimer?.();
 }
 
 export function unregisterMoneyLoop(runtime: IAgentRuntime): void {
