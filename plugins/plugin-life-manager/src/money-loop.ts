@@ -2,6 +2,7 @@ import {
   ChannelType,
   createMessageMemory,
   type IAgentRuntime,
+  logger,
   MESSAGE_SOURCE_TRIGGER_PROMPT,
   registerRuntimeManagedInternalActor,
   stringToUuid,
@@ -27,9 +28,14 @@ const installed = new WeakMap<
 
 export function registerMoneyLoop(runtime: IAgentRuntime): void {
   if (installed.has(runtime)) return;
+  logger.info("[life-manager-money-loop] registering");
   const contribution: ScheduledTaskChannelDispatcherContribution = {
     channelKey: MONEY_LOOP_CHANNEL,
     dispatch: async (record) => {
+      logger.info(
+        { taskId: record.taskId, firedAtIso: record.firedAtIso },
+        "[life-manager-money-loop] dispatching",
+      );
       const messageService = runtime.messageService;
       if (!messageService) throw new Error("Message service is unavailable");
       const roomId = stringToUuid(`life-manager-money-room:${runtime.agentId}`);
@@ -115,6 +121,10 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
           untilIso: new Date().toISOString(),
         });
       }
+      logger.info(
+        { taskId: moneyTask?.taskId ?? null },
+        "[life-manager-money-loop] seed complete",
+      );
       const taskService = runtime.getService("task") as
         | { runDueTasks?: () => Promise<void>; startTimer?: () => void }
         | null;
