@@ -97,10 +97,19 @@ export function registerMoneyLoop(runtime: IAgentRuntime): void {
       ],
     });
     registerScheduledTaskRunnerBootHook(runtime, async (service) => {
+      const runner = service.getRunner({ agentId: runtime.agentId });
       await seedRegisteredTaskPacks(
         runtime,
-        service.getRunner({ agentId: runtime.agentId }),
+        runner,
       );
+      const moneyTask = (await runner.list()).find(
+        (task) => task.idempotencyKey === MONEY_LOOP_IDEMPOTENCY_KEY,
+      );
+      if (moneyTask?.metadata?.pendingDispatch) {
+        await runner.apply(moneyTask.taskId, "snooze", {
+          untilIso: new Date().toISOString(),
+        });
+      }
       const taskService = runtime.getService("task") as
         | { runDueTasks?: () => Promise<void>; startTimer?: () => void }
         | null;
