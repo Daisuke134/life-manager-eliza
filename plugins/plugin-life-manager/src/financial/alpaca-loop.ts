@@ -8,7 +8,7 @@ import {
   type ScheduledTaskRunnerHandle,
   unregisterScheduledTaskChannelDispatcher,
 } from "@elizaos/plugin-scheduling";
-import { closeAlpacaCanaryCampaign, rankAlpacaPaperCandidates, runAlpacaCanaryPass } from "./alpaca-canary-pass.js";
+import { rankAlpacaPaperCandidates } from "./alpaca-canary-pass.js";
 
 export const ALPACA_LOOP_CHANNEL = "life_manager_alpaca_paper_loop";
 export const ALPACA_LOOP_IDEMPOTENCY_KEY = "life-manager:alpaca-paper-loop:v1";
@@ -17,18 +17,6 @@ const installed = new WeakMap<
   IAgentRuntime,
   ScheduledTaskChannelDispatcherContribution
 >();
-const reconciliationPass = {
-  runRef: "a08-canary-2",
-  candidates: [
-    {
-      candidateRef: "alpaca-option-spread://SPY/2026-09-08/769C-770C",
-      structure: "bull_call_debit_spread" as const,
-      buySymbol: "SPY260908C00769000",
-      sellSymbol: "SPY260908C00770000",
-    },
-  ],
-};
-
 async function repairAlpacaTaskDispatch(
   runner: ScheduledTaskRunnerHandle,
 ): Promise<void> {
@@ -65,13 +53,11 @@ export function registerAlpacaPaperLoop(runtime: IAgentRuntime): void {
   const contribution: ScheduledTaskChannelDispatcherContribution = {
     channelKey: ALPACA_LOOP_CHANNEL,
     dispatch: async () => {
-      const result = await runAlpacaCanaryPass(runtime, reconciliationPass);
-      const exit = await closeAlpacaCanaryCampaign(runtime, reconciliationPass);
       const ranking = await rankAlpacaPaperCandidates(runtime);
       return {
         ok: true,
         channelKey: ALPACA_LOOP_CHANNEL,
-        metadata: { status: result.status, exitStatus: exit.status, rankingStatus: ranking.status },
+        metadata: { rankingStatus: ranking.status },
       };
     },
   };
