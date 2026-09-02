@@ -55,7 +55,7 @@
 
 **Consumes:** `GET /api/life-manager/alpaca/public` only.
 
-- [ ] Render `GET /alpaca` as one responsive server-returned HTML document.
-- [ ] Fetch only the shared public projection and populate the DOM with `textContent`; include no form, button, order action, external script, or mutation request.
-- [ ] Show paper-only status, equity/P&L, reconciliation, decision/gate, positions/fills, and effect timeline; show an honest unavailable state on read failure.
-- [ ] Verify page contract, typecheck, focused tests, build, commit, push, and merge. Keep A12 open until an actually hosted logged-out URL is read back.
+- [x] Render `GET /alpaca` as one responsive server-returned HTML document.
+- [x] Fetch only the shared public projection and populate the DOM with `textContent`; include no form, button, order action, external script, or mutation request.
+- [x] Show paper-only status, equity/P&L, reconciliation, decision/gate, positions/fills, and effect timeline; show an honest unavailable state on read failure.
+- [x] Verify page contract, typecheck, focused tests, build, commit, push, and merge. Keep A12 open until an actually hosted logged-out URL is read back.
