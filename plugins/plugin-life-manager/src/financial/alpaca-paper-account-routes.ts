@@ -17,11 +17,26 @@ import {
   type AlpacaCanaryCandidateInput,
 } from "./alpaca-canary-pass.js";
 import { createLocalAlpacaCliProvider } from "./alpaca-local-adapter.js";
+import { renderAlpacaPublicPage } from "./alpaca-public-page.js";
 import { buildAlpacaPublicProjection } from "./alpaca-public-projection.js";
 
 type Database = NodePgDatabase<typeof lifeManagerDbSchema>;
 
 export const alpacaPaperAccountRoutes: Route[] = [
+  {
+    type: "GET",
+    path: "/alpaca",
+    rawPath: true,
+    routeHandler: async (): Promise<RouteHandlerResult> => ({
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        "cache-control": "no-store",
+      },
+      body: renderAlpacaPublicPage(),
+    }),
+  },
   {
     type: "GET",
     path: "/api/life-manager/alpaca/public",
