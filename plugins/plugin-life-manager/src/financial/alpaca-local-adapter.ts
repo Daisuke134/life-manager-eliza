@@ -52,6 +52,11 @@ export interface AlpacaLocalAdapterOptions {
   readonly execFile?: AlpacaExecFile;
 }
 
+export interface AlpacaApiCredentials {
+  readonly keyId: string;
+  readonly secret: string;
+}
+
 export interface AlpacaMarketObservation {
   readonly paper: true;
   readonly accountStatus: "ACTIVE" | "UNKNOWN";
@@ -80,6 +85,14 @@ export interface AlpacaDefinedRiskOrderRequest {
     readonly positionIntent:
       "buy_to_open" | "sell_to_open" | "buy_to_close" | "sell_to_close";
   }[];
+}
+
+export interface AlpacaSpotOrderRequest {
+  readonly paper: true;
+  readonly assetClass: "CRYPTO" | "EQUITY";
+  readonly symbol: string;
+  readonly notionalUsd: number;
+  readonly clientOrderId: string;
 }
 
 export interface AlpacaPaperOrderReceipt {
@@ -145,6 +158,7 @@ export interface AlpacaCliProvider {
   submitDefinedRiskOrder(
     request: AlpacaDefinedRiskOrderRequest,
   ): Promise<AlpacaPaperOrderReceipt>;
+  submitSpotOrder(request: AlpacaSpotOrderRequest): Promise<AlpacaPaperOrderReadback>;
 }
 
 export type AlpacaCapturedCredentialField =
@@ -275,6 +289,19 @@ function privateHandle(path: string): PrivateHandle | undefined {
       ),
     ) as PrivateHandle,
   );
+}
+
+export function readLocalAlpacaApiCredentials(
+  options: Pick<AlpacaLocalAdapterOptions, "credentialsPath"> = {},
+): AlpacaApiCredentials {
+  const credentialsPath =
+    options.credentialsPath ??
+    join(homedir(), ".local", "share", "anicca", "credentials.json");
+  const handle = privateHandle(credentialsPath);
+  if (!handle?.api_key || !handle.api_secret) {
+    throw new Error("Alpaca paper API credentials are unavailable");
+  }
+  return Object.freeze({ keyId: handle.api_key, secret: handle.api_secret });
 }
 
 function ownerEmail(path: string): string {
@@ -760,6 +787,36 @@ export function createLocalAlpacaCliProvider(
         id: stringField(receipt, "id"),
         clientOrderId: stringField(receipt, "clientOrderId"),
         status: stringField(receipt, "status"),
+      };
+    },
+    submitSpotOrder: async (request) => {
+      if (request.paper !== true) throw new Error("Live Alpaca orders are forbidden");
+      const symbol = safeToken(request.symbol.toUpperCase(), "spot symbol");
+      const validSymbol = request.assetClass === "CRYPTO"
+        ? /^[A-Z0-9]{2,10}\/USD$/u.test(symbol)
+        : request.assetClass === "EQUITY" && /^[A-Z]{1,6}$/u.test(symbol);
+      if (!validSymbol || !Number.isFinite(request.notionalUsd) || request.notionalUsd <= 0)
+        throw new Error("Alpaca spot order is invalid");
+      const clientOrderId = safeToken(request.clientOrderId, "client order ID");
+      const env = await context();
+      const receipt = json(await command(runner, cliPath, [
+        "order", "submit", "--symbol", symbol, "--notional", request.notionalUsd.toFixed(2),
+        "--side", "buy", "--type", "market", "--time-in-force",
+        request.assetClass === "CRYPTO" ? "gtc" : "day",
+        "--client-order-id", clientOrderId, "--quiet", "--jq",
+        "{id:.id,clientOrderId:.client_order_id,status:.status,submittedAt:.submitted_at,filledQuantity:(.filled_qty|tonumber),filledAveragePrice:(if .filled_avg_price then (.filled_avg_price|tonumber) else null end)}",
+      ], env));
+      const average = receipt.filledAveragePrice;
+      if (average !== null && (typeof average !== "number" || !Number.isFinite(average)))
+        throw new Error("Alpaca fill price is invalid");
+      return {
+        paper: true,
+        id: stringField(receipt, "id"),
+        clientOrderId: stringField(receipt, "clientOrderId"),
+        status: stringField(receipt, "status"),
+        submittedAt: stringField(receipt, "submittedAt"),
+        filledQuantity: numberField(receipt, "filledQuantity"),
+        ...(typeof average === "number" ? { filledAveragePrice: average } : {}),
       };
     },
   };

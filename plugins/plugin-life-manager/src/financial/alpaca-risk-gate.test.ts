@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateAlpacaRisk, type AlpacaRiskGateInput } from "./alpaca-risk-gate.js";
+import { evaluateAlpacaPortfolioRisk, evaluateAlpacaRisk, type AlpacaRiskGateInput } from "./alpaca-risk-gate.js";
 
 const now = Date.parse("2026-09-01T18:00:00Z");
 const allowed: AlpacaRiskGateInput = {
@@ -29,5 +29,20 @@ describe("Alpaca deterministic risk gate", () => {
     ]));
     expect(evaluateAlpacaRisk({ ...allowed, structure: "naked_short" } as never).reasons)
       .toEqual(["INVALID_RISK_INPUT"]);
+  });
+
+  it("accounts for existing portfolio loss before a new candidate", () => {
+    expect(evaluateAlpacaPortfolioRisk({
+      candidateMaxLossUsd: 250, openMaxLossUsd: 29, openRiskKnown: true,
+      equityUsd: 100_000, cashUsd: 99_970.95, highWaterEquityUsd: 100_000,
+      dailyPnlUsd: -2.05, positionsCount: 2, openOrdersCount: 0,
+      reconciliationHealthy: true,
+    })).toEqual({ allowed: true, aggregateMaxLossUsd: 279, reasons: [] });
+    expect(evaluateAlpacaPortfolioRisk({
+      candidateMaxLossUsd: 250, openMaxLossUsd: 0, openRiskKnown: false,
+      equityUsd: 100_000, cashUsd: 99_970.95, highWaterEquityUsd: 100_000,
+      dailyPnlUsd: -2.05, positionsCount: 2, openOrdersCount: 0,
+      reconciliationHealthy: true,
+    }).reasons).toContain("OPEN_RISK_UNKNOWN");
   });
 });

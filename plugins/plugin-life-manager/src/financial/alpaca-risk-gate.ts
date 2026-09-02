@@ -47,6 +47,43 @@ export interface AlpacaRiskGateResult {
   readonly reasons: readonly string[];
 }
 
+export interface AlpacaPortfolioRiskInput {
+  readonly candidateMaxLossUsd: number;
+  readonly openMaxLossUsd: number;
+  readonly openRiskKnown: boolean;
+  readonly equityUsd: number;
+  readonly cashUsd: number;
+  readonly highWaterEquityUsd: number;
+  readonly dailyPnlUsd: number;
+  readonly positionsCount: number;
+  readonly openOrdersCount: number;
+  readonly reconciliationHealthy: boolean;
+}
+
+export function evaluateAlpacaPortfolioRisk(input: AlpacaPortfolioRiskInput) {
+  const reasons: string[] = [];
+  const finite = [
+    input.candidateMaxLossUsd, input.openMaxLossUsd, input.equityUsd, input.cashUsd,
+    input.highWaterEquityUsd, input.dailyPnlUsd, input.positionsCount, input.openOrdersCount,
+  ].every(Number.isFinite);
+  if (!finite || input.candidateMaxLossUsd <= 0 || input.openMaxLossUsd < 0 ||
+      input.equityUsd <= 0 || input.highWaterEquityUsd <= 0 ||
+      !Number.isInteger(input.positionsCount) || input.positionsCount < 0 ||
+      !Number.isInteger(input.openOrdersCount) || input.openOrdersCount < 0)
+    return Object.freeze({ allowed: false, aggregateMaxLossUsd: 0, reasons: Object.freeze(["INVALID_PORTFOLIO_INPUT"]) });
+  const aggregateMaxLossUsd = Math.round((input.openMaxLossUsd + input.candidateMaxLossUsd) * 100) / 100;
+  if (!input.openRiskKnown) reasons.push("OPEN_RISK_UNKNOWN");
+  if (input.candidateMaxLossUsd > input.equityUsd * ALPACA_RISK_POLICY.maxTradeEquityFraction) reasons.push("TRADE_RISK_LIMIT");
+  if (aggregateMaxLossUsd > input.equityUsd * ALPACA_RISK_POLICY.maxOpenRiskEquityFraction) reasons.push("OPEN_RISK_LIMIT");
+  if (input.cashUsd - input.candidateMaxLossUsd < input.equityUsd * ALPACA_RISK_POLICY.minCashEquityFraction) reasons.push("CASH_RESERVE_LIMIT");
+  if (input.dailyPnlUsd <= -input.equityUsd * ALPACA_RISK_POLICY.maxDailyLossEquityFraction) reasons.push("DAILY_LOSS_HALT");
+  if ((input.highWaterEquityUsd - input.equityUsd) / input.highWaterEquityUsd >= ALPACA_RISK_POLICY.maxDrawdownFraction) reasons.push("DRAWDOWN_HALT");
+  if (input.positionsCount >= ALPACA_RISK_POLICY.maxPositions) reasons.push("POSITION_LIMIT");
+  if (input.openOrdersCount >= ALPACA_RISK_POLICY.maxOpenOrders) reasons.push("ORDER_LIMIT");
+  if (!input.reconciliationHealthy) reasons.push("RECONCILIATION_UNHEALTHY");
+  return Object.freeze({ allowed: reasons.length === 0, aggregateMaxLossUsd, reasons: Object.freeze(reasons) });
+}
+
 export function evaluateAlpacaRisk(input: AlpacaRiskGateInput): AlpacaRiskGateResult {
   const reasons: string[] = [];
   const structures = new Set([

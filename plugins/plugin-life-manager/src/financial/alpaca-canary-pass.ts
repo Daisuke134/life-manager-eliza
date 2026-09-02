@@ -13,8 +13,9 @@ import {
 import { persistGoalWorkItem } from "../goal-work-item.js";
 import { decideAndPersistAlpacaTrade } from "./alpaca-decision.js";
 import { createLocalAlpacaCliProvider, type AlpacaCampaignSnapshot } from "./alpaca-local-adapter.js";
-import { reconcileAlpacaPaperCanaryReadback, runAlpacaPaperCanary, sealAlpacaPaperCanary } from "./alpaca-paper-canary.js";
-import { evaluateAlpacaRisk } from "./alpaca-risk-gate.js";
+import { createAlpacaReadOnlyMarketData } from "./alpaca-market-data.js";
+import { reconcileAlpacaPaperCanaryReadback, reconcileAlpacaPaperSpotReadback, runAlpacaPaperCanary, runAlpacaPaperSpotOrder, sealAlpacaPaperCanary, sealAlpacaPaperSpotOrder } from "./alpaca-paper-canary.js";
+import { ALPACA_RISK_POLICY, evaluateAlpacaPortfolioRisk, evaluateAlpacaRisk } from "./alpaca-risk-gate.js";
 
 export interface AlpacaCanaryCandidateInput {
   readonly candidateRef: string;
@@ -68,7 +69,7 @@ function requestFingerprint(candidates: readonly AlpacaCanaryCandidateInput[]): 
   return createHash("sha256").update(JSON.stringify(candidates)).digest("hex");
 }
 
-async function ensureWorkItem(runtime: IAgentRuntime, db: Database, runRef: string, fingerprint: string, now: Date) {
+async function ensureWorkItem(runtime: IAgentRuntime, db: Database, runRef: string, fingerprint: string, now: Date, statement = "Evaluate and, only if allowed, place one defined-risk Alpaca paper options canary.") {
   const agentId = runtime.agentId;
   const entityId = runtime.agentId;
   const goalId = stringToUuid(`life-manager:alpaca:paper-canary:${runRef}`);
@@ -76,7 +77,7 @@ async function ensureWorkItem(runtime: IAgentRuntime, db: Database, runRef: stri
     id: goalId,
     agentId,
     entityId,
-    statement: "Evaluate and, only if allowed, place one defined-risk Alpaca paper options canary.",
+    statement,
     provenance: { kind: "owner_goal", runRef, fingerprint },
     status: "active",
   }).onConflictDoNothing();
@@ -94,6 +95,7 @@ async function ensureWorkItem(runtime: IAgentRuntime, db: Database, runRef: stri
 
 type Scope = Awaited<ReturnType<typeof ensureWorkItem>>;
 type CanaryRequest = Parameters<typeof runAlpacaPaperCanary>[0];
+type SpotRequest = Parameters<typeof runAlpacaPaperSpotOrder>[0];
 type StoredIntent = {
   readonly id: string;
   readonly status: string;
@@ -121,15 +123,20 @@ async function executeStoredIntent(
   storedIntent: StoredIntent,
   provider: ReturnType<typeof createLocalAlpacaCliProvider>,
 ) {
-  const stored = storedIntent.inputRefs as { canaryRequest?: unknown; expiresAt?: unknown };
-  if (!stored.canaryRequest || typeof stored.expiresAt !== "string")
+  const stored = storedIntent.inputRefs as { canaryRequest?: unknown; spotRequest?: unknown; expiresAt?: unknown };
+  const spot = stored.spotRequest !== undefined;
+  const request = (spot ? stored.spotRequest : stored.canaryRequest) as CanaryRequest | SpotRequest | undefined;
+  if (!request || typeof stored.expiresAt !== "string")
     throw new Error("Alpaca canary stored intent is incomplete");
-  const canaryRequest = stored.canaryRequest as CanaryRequest;
-  const sealed = sealAlpacaPaperCanary(canaryRequest);
+  const sealed = spot
+    ? sealAlpacaPaperSpotOrder(request as SpotRequest)
+    : sealAlpacaPaperCanary(request as CanaryRequest);
   try {
     const order = await provider.findOrderByClientId(sealed.clientOrderId);
     if (order) {
-      const result = reconcileAlpacaPaperCanaryReadback(canaryRequest, order);
+      const result = spot
+        ? reconcileAlpacaPaperSpotReadback(request as SpotRequest, order)
+        : reconcileAlpacaPaperCanaryReadback(request as CanaryRequest, order);
       await db.update(effectIntentsTable).set({
         status: "applied",
         leaseOwner: null,
@@ -162,7 +169,9 @@ async function executeStoredIntent(
   if (claimed.length !== 1) throw new Error("Alpaca canary effect is already claimed");
   let result;
   try {
-    result = await runAlpacaPaperCanary(canaryRequest, provider);
+    result = spot
+      ? await runAlpacaPaperSpotOrder(request as SpotRequest, provider)
+      : await runAlpacaPaperCanary(request as CanaryRequest, provider);
   } catch {
     await blockReconciliation(db, storedIntent.id);
     throw new Error("Alpaca canary effect acknowledgement is unknown; reconciliation breaker is open");
@@ -175,7 +184,13 @@ async function executeStoredIntent(
   return result;
 }
 
-async function persistOutcome(db: Database, scope: Scope, intent: StoredIntent, result: Awaited<ReturnType<typeof runAlpacaPaperCanary>>) {
+async function persistOutcome(
+  db: Database,
+  scope: Scope,
+  intent: StoredIntent,
+  result: Awaited<ReturnType<typeof runAlpacaPaperCanary>> | Awaited<ReturnType<typeof runAlpacaPaperSpotOrder>>,
+  brokerReadback?: Record<string, unknown>,
+) {
   await db.insert(outcomeReceiptsTable).values({
     agentId: scope.agentId,
     entityId: scope.entityId,
@@ -183,14 +198,14 @@ async function persistOutcome(db: Database, scope: Scope, intent: StoredIntent, 
     attempt: 0,
     outcome: result.receipt.outcome,
     effectKey: intent.effectKey,
-    receipt: result.receipt,
+    receipt: brokerReadback ? { ...result.receipt, brokerReadback } : result.receipt,
   }).onConflictDoNothing();
 }
 
 async function persistNoEffectOutcome(
   db: Database,
   scope: Scope,
-  kind: "NO_TRADE" | "RISK_REJECTED",
+  kind: "NO_TRADE" | "RISK_REJECTED" | "RESEARCH_ONLY",
   receipt: Record<string, unknown>,
 ) {
   const effectKey = `alpaca-paper-no-effect:${kind.toLowerCase()}:${scope.workItemId}`;
@@ -218,6 +233,218 @@ async function persistNoEffectOutcome(
     effectKey,
     receipt: { ...receipt, kind, effectStarted: false },
   }).onConflictDoNothing();
+}
+
+export async function rankAlpacaPaperCandidates(runtime: IAgentRuntime) {
+  const now = new Date();
+  const db = runtime.db as unknown as Database | undefined;
+  if (!db || typeof db.transaction !== "function")
+    throw new Error("Alpaca candidate ranking requires plugin-sql runtime.db");
+  const provider = createLocalAlpacaCliProvider();
+  const account = await provider.observe("SPY");
+  const data = createAlpacaReadOnlyMarketData();
+  const day = 86_400_000;
+  const [chain, crypto, stocks, campaign] = await Promise.all([
+    data.readOptionChain({
+      underlyingSymbol: "SPY",
+      expirationDateGte: new Date(now.getTime() + 3 * day),
+      expirationDateLte: new Date(now.getTime() + 14 * day),
+      strikePriceGte: Math.floor(account.latestPrice * 0.97),
+      strikePriceLte: Math.ceil(account.latestPrice * 1.03),
+      limit: 1_000,
+    }),
+    data.readCryptoSnapshots(["BTC/USD", "ETH/USD"]),
+    data.readStockSnapshots(["QQQ"]),
+    provider.readCampaignSnapshot(),
+  ]);
+  const opening = openingOrderIntent(await db.select({ inputRefs: effectIntentsTable.inputRefs }).from(effectIntentsTable).where(and(
+    eq(effectIntentsTable.agentId, runtime.agentId),
+    eq(effectIntentsTable.entityId, runtime.agentId),
+    eq(effectIntentsTable.effectClass, "broker.paper.order"),
+  )));
+  const storedRisk = (opening?.inputRefs as { canaryRequest?: { risk?: { calculatedMaxLossUsd?: unknown } } } | undefined)
+    ?.canaryRequest?.risk?.calculatedMaxLossUsd;
+  const definedRisk = typeof storedRisk === "number" && Number.isFinite(storedRisk) && storedRisk >= 0
+    ? storedRisk
+    : undefined;
+  const spotExposureUsd = campaign.positions.reduce((sum, position) => sum + Math.abs(position.marketValue), 0);
+  const openRiskKnown = campaign.positions.length === 0 || definedRisk !== undefined || spotExposureUsd > 0;
+  const openMaxLossUsd = campaign.positions.length === 0 ? 0 : definedRisk ?? spotExposureUsd;
+  const groups = new Map<string, { symbol: string; strike: number; kind: string; quote: NonNullable<(typeof chain)[string]["latestQuote"]>; delta: number }[]>();
+  for (const [symbol, snapshot] of Object.entries(chain)) {
+    const parsed = contract(symbol);
+    const quote = snapshot.latestQuote;
+    if (!quote || !(quote.ap > quote.bp && quote.bp > 0) || !snapshot.greeks) continue;
+    const key = `${parsed.expiry}:${parsed.kind}`;
+    const group = groups.get(key) ?? [];
+    group.push({ symbol, strike: parsed.strike, kind: parsed.kind, quote, delta: snapshot.greeks.delta });
+    groups.set(key, group);
+  }
+  const offered = [...groups.values()].flatMap((group) => {
+    group.sort((a, b) => a.strike - b.strike);
+    return group.slice(0, -1).flatMap((lower, index) => {
+      const upper = group[index + 1];
+      if (!upper) return [];
+      const call = lower.kind === "C";
+      const buy = call ? lower : upper;
+      const sell = call ? upper : lower;
+      const debit = Math.round((buy.quote.ap - sell.quote.bp) * 100) / 100;
+      const width = Math.abs(upper.strike - lower.strike);
+      if (!(debit > 0 && debit < width)) return [];
+      const quoteCostUsd = Math.round(((buy.quote.ap - buy.quote.bp) + (sell.quote.ap - sell.quote.bp)) * 10_000) / 100;
+      const quoteAt = new Date(Math.min(buy.quote.t.getTime(), sell.quote.t.getTime()));
+      return [{
+        candidateRef: `alpaca-option-spread://SPY/${buy.symbol.slice(3, 9)}/${buy.strike}${buy.kind}-${sell.strike}${sell.kind}`,
+        assetClass: "OPTION" as const,
+        structure: call ? "bull_call_debit_spread" as const : "bear_put_debit_spread" as const,
+        buySymbol: buy.symbol,
+        sellSymbol: sell.symbol,
+        maxLossUsd: debit * 100,
+        maxProfitUsd: Math.round((width - debit) * 10_000) / 100,
+        quoteCostUsd,
+        spreadBps: Math.round((quoteCostUsd / (debit * 100)) * 10_000),
+        quoteAt,
+        quoteAgeMs: now.getTime() - quoteAt.getTime(),
+        buyDelta: buy.delta,
+        sellDelta: sell.delta,
+      }];
+    });
+  }).sort((a, b) => a.quoteCostUsd - b.quoteCostUsd || a.maxLossUsd - b.maxLossUsd).slice(0, 12);
+  const spotMaxLossUsd = Math.round(Math.min(account.equity * 0.0025, 250) * 100) / 100;
+  const spotCandidates = [
+    ...Object.entries(crypto).flatMap(([symbol, snapshot]) => {
+      const quote = snapshot.latestQuote;
+      if (!quote || !(quote.ap > quote.bp && quote.bp > 0)) return [];
+      return [{
+        candidateRef: `alpaca-crypto://${symbol.replace("/", "-")}`,
+        assetClass: "CRYPTO" as const,
+        symbol,
+        structure: "spot_long" as const,
+        maxLossUsd: spotMaxLossUsd,
+        bid: quote.bp,
+        ask: quote.ap,
+        spreadBps: Math.round(((quote.ap - quote.bp) / ((quote.ap + quote.bp) / 2)) * 10_000),
+        quoteAt: quote.t,
+        quoteAgeMs: now.getTime() - quote.t.getTime(),
+      }];
+    }),
+    ...Object.entries(stocks).flatMap(([symbol, snapshot]) => {
+      const quote = snapshot.latestQuote;
+      if (!quote || !(quote.ap > quote.bp && quote.bp > 0)) return [];
+      return [{
+        candidateRef: `alpaca-equity://${symbol}`,
+        assetClass: "EQUITY" as const,
+        symbol,
+        structure: "spot_long" as const,
+        maxLossUsd: spotMaxLossUsd,
+        bid: quote.bp,
+        ask: quote.ap,
+        spreadBps: Math.round(((quote.ap - quote.bp) / ((quote.ap + quote.bp) / 2)) * 10_000),
+        quoteAt: quote.t,
+        quoteAgeMs: now.getTime() - quote.t.getTime(),
+      }];
+    }),
+  ];
+  const allCandidates = [...offered, ...spotCandidates];
+  if (!allCandidates.length) return Object.freeze({ status: "NO_CANDIDATES" as const, candidateCount: 0 });
+  const bucket = now.toISOString().slice(0, 13);
+  const fingerprint = createHash("sha256").update(JSON.stringify(allCandidates)).digest("hex");
+  const scope = await ensureWorkItem(runtime, db, `a11-ranking-${bucket}-${fingerprint.slice(0, 8)}`, fingerprint, now,
+    "Allocate across current Alpaca paper opportunities and execute one risk-approved spot order when it is strongest.");
+  const evidenceRefs = ["alpaca-sdk://SPY/option-chain", "alpaca-sdk://BTC-ETH/crypto-snapshots", "alpaca-sdk://QQQ/stock-snapshot"];
+  const decision = await decideAndPersistAlpacaTrade(runtime, db, {
+    ...scope,
+    objective: "Select the strongest risk-bounded candidate across SPY options, BTC/ETH crypto, and QQQ, or NO_TRADE. Compare evidence across markets. A selected crypto or equity candidate may execute only after deterministic scoring and aggregate portfolio gates pass.",
+    observation: {
+      paper: true,
+      account,
+      portfolio: { positions: campaign.positions, openMaxLossUsd, openRiskKnown },
+      candidates: allCandidates,
+    },
+    evidenceRefs,
+    candidateRefs: allCandidates.map(({ candidateRef }) => candidateRef),
+  });
+  const selected = allCandidates.find(({ candidateRef }) => candidateRef === decision.candidateRef);
+  const reasons: string[] = [];
+  const portfolioGate = selected ? evaluateAlpacaPortfolioRisk({
+    candidateMaxLossUsd: selected.maxLossUsd,
+    openMaxLossUsd,
+    openRiskKnown,
+    equityUsd: campaign.equity,
+    cashUsd: campaign.cash,
+    highWaterEquityUsd: Math.max(100_000, campaign.equity, campaign.lastEquity),
+    dailyPnlUsd: campaign.equity - campaign.lastEquity,
+    positionsCount: campaign.positions.length,
+    openOrdersCount: account.openOrdersCount,
+    reconciliationHealthy: campaign.positions.length === account.positionsCount,
+  }) : undefined;
+  if (decision.status === "TRADE") {
+    if (!selected) reasons.push("CANDIDATE_UNAVAILABLE");
+    if (selected && Math.abs(selected.maxLossUsd - decision.maxLossUsd) > 0.01) reasons.push("MAX_LOSS_MISMATCH");
+    if (decision.expectedValueUsd === undefined || decision.expectedValueUsd <= 0) reasons.push("NONPOSITIVE_EXPECTED_VALUE");
+    if (selected && (selected.quoteAgeMs < 0 || selected.quoteAgeMs > ALPACA_RISK_POLICY.maxQuoteAgeMs)) reasons.push("STALE_QUOTE");
+    if (selected && selected.spreadBps > ALPACA_RISK_POLICY.maxSpreadFraction * 10_000) reasons.push("SPREAD_LIMIT");
+    if (selected && "maxProfitUsd" in selected && decision.expectedGainUsd !== undefined &&
+        decision.expectedGainUsd > selected.maxProfitUsd) reasons.push("EXPECTED_GAIN_EXCEEDS_MAX_PROFIT");
+    if (selected?.assetClass === "EQUITY" && !account.regularSessionOpen) reasons.push("SESSION_CLOSED");
+    if (portfolioGate && !portfolioGate.allowed) reasons.push(...portfolioGate.reasons);
+  }
+  const scoringGate = Object.freeze({
+    allowed: decision.status === "TRADE" && reasons.length === 0,
+    reasons: Object.freeze([...new Set(reasons)]),
+    portfolio: portfolioGate,
+  });
+  const spot = selected?.assetClass === "CRYPTO" || selected?.assetClass === "EQUITY" ? selected : undefined;
+  if (scoringGate.allowed && spot && portfolioGate) {
+    const spotRequest: SpotRequest = {
+      workItemRef: `life-manager-work-item://${scope.workItemId}`,
+      decisionReceiptRef: `life-manager-decision://${scope.workItemId}`,
+      riskReceiptRef: `life-manager-portfolio-risk://${scope.workItemId}`,
+      risk: portfolioGate,
+      order: {
+        paper: true,
+        assetClass: spot.assetClass,
+        symbol: spot.symbol,
+        notionalUsd: spot.maxLossUsd,
+      },
+    };
+    const sealed = sealAlpacaPaperSpotOrder(spotRequest);
+    await db.insert(effectIntentsTable).values({
+      agentId: scope.agentId,
+      entityId: scope.entityId,
+      workItemId: scope.workItemId,
+      effectClass: "broker.paper.order",
+      effectKey: sealed.effectKey,
+      inputRefs: { ...sealed.inputRefs, spotRequest, expiresAt: new Date(Date.now() + 30_000).toISOString() },
+      status: "planned",
+    }).onConflictDoNothing();
+    const intent = (await db.select({
+      id: effectIntentsTable.id,
+      status: effectIntentsTable.status,
+      effectKey: effectIntentsTable.effectKey,
+      inputRefs: effectIntentsTable.inputRefs,
+    }).from(effectIntentsTable).where(and(
+      eq(effectIntentsTable.agentId, scope.agentId),
+      eq(effectIntentsTable.entityId, scope.entityId),
+      eq(effectIntentsTable.effectKey, sealed.effectKey),
+    )).limit(1))[0];
+    if (!intent) throw new Error("Alpaca paper spot intent persistence failed");
+    const result = await executeStoredIntent(db, intent, provider);
+    const order = await provider.findOrderByClientId(sealed.clientOrderId);
+    if (!order) {
+      await blockReconciliation(db, intent.id);
+      throw new Error("Alpaca paper spot order acknowledgement is missing; reconciliation breaker is open");
+    }
+    await persistOutcome(db, scope, intent, result, order as unknown as Record<string, unknown>);
+    return Object.freeze({ status: "SPOT_ORDER_VERIFIED" as const, candidateCount: allCandidates.length, decision, scoringGate, result, order });
+  }
+  await persistNoEffectOutcome(db, scope, "RESEARCH_ONLY", { decision, scoringGate, rankedCandidates: allCandidates });
+  return Object.freeze({
+    status: decision.status === "NO_TRADE" ? "NO_TRADE" as const : scoringGate.allowed ? "CANDIDATE_RANKED" as const : "CANDIDATE_REJECTED" as const,
+    candidateCount: allCandidates.length,
+    decision,
+    scoringGate,
+  });
 }
 
 function reconcileCampaignSnapshot(
